@@ -15,6 +15,8 @@ import {
   Edit3,
   Check,
   StickyNote,
+  Database,
+  Search,
 } from 'lucide-react';
 
 interface DocumentViewProps {
@@ -30,6 +32,21 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
   const [newTaskText, setNewTaskText] = useState('');
   const [activeTaskNoteId, setActiveTaskNoteId] = useState<string | null>(null);
   const [taskNoteInput, setTaskNoteInput] = useState('');
+  const [taskFilter, setTaskFilter] = useState('');
+
+  const completedCount = planState.tasks.filter((t) => t.completed).length;
+  const totalCount = planState.tasks.length;
+  const progressPercent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+
+  const filteredTasks = planState.tasks.filter(
+    (t) =>
+      t.title.toLowerCase().includes(taskFilter.toLowerCase()) ||
+      (t.notes && t.notes.toLowerCase().includes(taskFilter.toLowerCase()))
+  );
+
+  const schemaSections = (planState.sections || []).filter((s) =>
+    /schema|database|data model|entity|table|models|migrations/i.test(s.heading)
+  );
 
   // Helper to append automatic instruction notes to userInstructions
   const appendAutoInstruction = (note: string, baseState = planState): string => {
@@ -212,12 +229,12 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
 
       {/* 2. Interactive Tasks & Inline Comments */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
             <CheckSquare className="w-5 h-5 text-emerald-400" />
             <h2 className="text-base font-semibold text-white">Interactive Tasks & Steps</h2>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 font-mono">
-              {planState.tasks.filter((t) => t.completed).length} / {planState.tasks.length} done
+            <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-emerald-400 font-mono border border-slate-700">
+              {completedCount} / {totalCount} completed ({progressPercent}%)
             </span>
           </div>
           <span className="text-xs text-slate-400">
@@ -225,9 +242,31 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
           </span>
         </div>
 
+        {/* Visual Progress Bar */}
+        <div className="w-full bg-slate-950 h-2 rounded-full overflow-hidden border border-slate-800 mb-4">
+          <div
+            className="bg-gradient-to-r from-emerald-500 to-teal-400 h-full transition-all duration-300 rounded-full"
+            style={{ width: `${progressPercent}%` }}
+          />
+        </div>
+
+        {/* Task Filter / Search (helpful for long task lists) */}
+        {totalCount > 4 && (
+          <div className="relative mb-3">
+            <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5" />
+            <input
+              type="text"
+              value={taskFilter}
+              onChange={(e) => setTaskFilter(e.target.value)}
+              placeholder="Filter tasks by name or note..."
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-200 outline-none focus:border-emerald-500"
+            />
+          </div>
+        )}
+
         {/* Task List */}
         <div className="space-y-2 mb-4">
-          {planState.tasks.map((task, idx) => (
+          {filteredTasks.map((task, idx) => (
             <div
               key={task.id}
               className={`group rounded-xl border transition ${
@@ -406,6 +445,35 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Database Schema & Data Models Section (renders SQL schema tables or data structures if present) */}
+      {schemaSections.length > 0 && (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Database className="w-5 h-5 text-amber-400" />
+              <h2 className="text-base font-semibold text-white">Database Schema & Data Models</h2>
+            </div>
+            <span className="text-xs px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-300 font-mono border border-amber-500/20">
+              {schemaSections.length} Schema Definitions
+            </span>
+          </div>
+
+          <div className="space-y-4">
+            {schemaSections.map((sec, idx) => (
+              <div key={idx} className="bg-slate-950/70 border border-slate-800 rounded-xl p-4">
+                <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-amber-400" />
+                  {sec.heading}
+                </h3>
+                <pre className="bg-slate-900 border border-slate-800/80 rounded-lg p-3 font-mono text-xs text-amber-200/90 overflow-x-auto whitespace-pre-wrap leading-relaxed">
+                  {sec.content.trim()}
+                </pre>
+              </div>
+            ))}
           </div>
         </div>
       )}

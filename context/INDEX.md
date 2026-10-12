@@ -6,6 +6,7 @@ This index routes AI models and developers to the right architecture and specifi
 |---|---|---|
 | [DESIGN.md](./DESIGN.md) | High-level architecture, design decisions, two-tier history engine, and interaction models | Understanding architectural rationale, history depth management, or diagram state sync |
 | [SPEC.md](./SPEC.md) | Technical specs, REST/WebSocket APIs, Graph AST, CLI protocol, and Skill definition | Implementing endpoints, updating schemas, writing CLI runners, or modifying skills |
+| [TESTS.md](./TESTS.md) | Acceptance criteria matrix, E2E test scenarios, regression harness, and execution results | Verifying features, running regressions, asserting edge cases, or reviewing visual evidence |
 
 ## Core Principles
 1. **Never Autosave on User Movement**: Plan files on disk are immutable until the user explicitly hits **"Save Draft"** or **"Approve & Submit"**.

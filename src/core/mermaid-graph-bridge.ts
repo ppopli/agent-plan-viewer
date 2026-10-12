@@ -72,7 +72,57 @@ function buildDefaultScenarios(nodes: DiagramNode[], edges: DiagramEdge[], steps
     touchedComponents: Array.from(new Set(authFailSteps.flatMap(s => [s.source, s.target]))),
   };
 
-  return [successScenario, downstreamFailScenario, authFailScenario];
+  // Scenario 3: Edge Case Cache Spike & Direct DB Fallback
+  const cacheFallbackSteps: FlowStep[] = steps.map((s, idx) => {
+    if (idx === 1) {
+      return {
+        ...s,
+        label: 'CACHE MISS: Redis Cache Spike -> Fallback to PostgreSQL Primary',
+        response: '{"status": 200, "cacheHit": false, "readFrom": "replica_01"}',
+        status: 'success' as const,
+      };
+    }
+    return { ...s, status: 'success' as const };
+  });
+
+  const cacheFallbackScenario: FlowScenario = {
+    id: 'scen-cache-spike',
+    name: 'Edge Case: Cache Spike & DB Fallback',
+    type: 'edge_case',
+    description: 'Cache miss occurs during traffic spike; fallback query routes directly to database read-replica.',
+    steps: cacheFallbackSteps,
+    touchedComponents: touchedAll,
+  };
+
+  // Scenario 4: Queue Backpressure & DLQ
+  const queueFailSteps: FlowStep[] = steps.map((s, idx) => {
+    if (idx === steps.length - 1) {
+      return {
+        ...s,
+        label: 'BACKPRESSURE: Queue Ingestion Rate Limit Exceeded -> Sent to Dead-Letter Queue (DLQ)',
+        response: '{"status": 429, "error": "Queue Full", "routedTo": "orders.dlq"}',
+        status: 'failure' as const,
+      };
+    }
+    return { ...s, status: 'success' as const };
+  });
+
+  const queueFailScenario: FlowScenario = {
+    id: 'scen-queue-backpressure',
+    name: 'Failure: Queue Backpressure & DLQ',
+    type: 'failure',
+    description: 'Event broker reaches capacity threshold, emits 429 rate limit and dispatches to DLQ.',
+    steps: queueFailSteps,
+    touchedComponents: touchedAll,
+  };
+
+  return [
+    successScenario,
+    downstreamFailScenario,
+    authFailScenario,
+    cacheFallbackScenario,
+    queueFailScenario,
+  ];
 }
 
 /**

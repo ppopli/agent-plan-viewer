@@ -120,3 +120,11 @@ agent-plan-viewer review <file-path> [--port <number>] [--no-open] [--json]
 - **Exit Code 0**: Review session completed (either approved or changes requested). Outputs JSON result payload to `stdout`.
 - **Exit Code 1**: Error reading file, port conflict, or unhandled exception.
 - **Signal Handling**: SIGINT/SIGTERM cleanly shuts down HTTP & WebSocket server without corrupting disk file.
+
+---
+
+## 3. Verification & Acceptance Criteria Matrix
+
+All formal Acceptance Criteria (AC-01 through AC-08) and comprehensive test scenarios (Happy Paths HP-01 to HP-15, Negative Paths NEG-01 to NEG-05, and Edge Cases EDGE-01 to EDGE-05) are specified with execution results, timestamps, and pass/fail observations in:
+👉 **[`context/TESTS.md`](file:///Users/pulkitpopli/pulkit/workspace/agentic-system-design/agent-plan-viewer/context/TESTS.md)**
+

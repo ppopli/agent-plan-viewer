@@ -25,6 +25,7 @@ import {
   PlaySquare,
   Square,
   Sparkles,
+  Search,
 } from 'lucide-react';
 import { PlanState, ParsedDiagram, FlowStep, FlowScenario } from '../../core/types.js';
 
@@ -116,6 +117,9 @@ export const FlowSimulator: React.FC<FlowSimulatorProps> = ({
 
   const [activeScenarioIdx, setActiveScenarioIdx] = useState(0);
   const activeScenario: FlowScenario | undefined = scenarios[activeScenarioIdx];
+
+  const [showScenarioDirectory, setShowScenarioDirectory] = useState(false);
+  const [scenarioFilter, setScenarioFilter] = useState('');
 
   const [currentStepIdx, setCurrentStepIdx] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -261,19 +265,33 @@ export const FlowSimulator: React.FC<FlowSimulatorProps> = ({
   return (
     <div className="relative w-full h-[calc(100vh-64px)] bg-slate-950 flex flex-col overflow-hidden">
       {/* 1. Top Scenarios Bar */}
+      {/* 1. Top Scenarios Bar with Scrollable Scenario Buttons & Directory Drawer Toggle */}
       <div className="bg-slate-900 border-b border-slate-800 px-6 py-2.5 flex items-center justify-between z-20">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 text-xs font-semibold text-slate-300">
-            <ListFilter className="w-4 h-4 text-indigo-400" />
-            <span>Execution Scenarios:</span>
-          </div>
+        <div className="flex items-center gap-3 overflow-hidden">
+          <button
+            onClick={() => setShowScenarioDirectory(!showScenarioDirectory)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition shrink-0 ${
+              showScenarioDirectory
+                ? 'bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-900/40'
+                : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-750'
+            }`}
+            title="Toggle Scenario Directory List View"
+          >
+            <ListFilter className="w-3.5 h-3.5" />
+            <span>Scenario List View</span>
+            <span className="ml-1 px-1.5 py-0.2 rounded-full bg-slate-950 text-[10px] text-indigo-300 font-mono">
+              {scenarios.length}
+            </span>
+          </button>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 overflow-x-auto max-w-[calc(100vw-540px)] py-1 scrollbar-thin">
             {scenarios.map((scen, idx) => {
               const isSelected = activeScenarioIdx === idx;
               const badgeColor =
                 scen.type === 'success'
                   ? 'border-emerald-500/40 text-emerald-300 bg-emerald-950/40'
+                  : scen.type === 'edge_case'
+                  ? 'border-amber-500/40 text-amber-300 bg-amber-950/40'
                   : 'border-rose-500/40 text-rose-300 bg-rose-950/40';
 
               return (
@@ -284,16 +302,18 @@ export const FlowSimulator: React.FC<FlowSimulatorProps> = ({
                     setCurrentStepIdx(0);
                     setIsPlaying(false);
                   }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border transition ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border whitespace-nowrap shrink-0 transition ${
                     isSelected
                       ? `ring-2 ring-indigo-400 ${badgeColor} font-bold shadow-md`
                       : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
                   }`}
                 >
                   {scen.type === 'success' ? (
-                    <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                    <CheckCircle className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  ) : scen.type === 'edge_case' ? (
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                   ) : (
-                    <XCircle className="w-3.5 h-3.5 text-rose-400" />
+                    <XCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
                   )}
                   <span>{scen.name}</span>
                 </button>
@@ -303,7 +323,7 @@ export const FlowSimulator: React.FC<FlowSimulatorProps> = ({
         </div>
 
         {/* Play All, Pause All, Stop All Playlist Controls */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={handlePlayAll}
             title="Run all scenarios sequentially 1 by 1"
@@ -330,6 +350,96 @@ export const FlowSimulator: React.FC<FlowSimulatorProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Slide-over Scenario Directory List View */}
+      {showScenarioDirectory && (
+        <div className="absolute top-12 left-0 w-96 h-[calc(100vh-112px)] bg-slate-900/95 backdrop-blur-md border-r border-slate-800 shadow-2xl z-30 flex flex-col animate-in slide-in-from-left duration-200">
+          <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <ListFilter className="w-4 h-4 text-indigo-400" />
+                Scenario Directory ({scenarios.length})
+              </h3>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                All execution paths & failure topologies
+              </p>
+            </div>
+            <button
+              onClick={() => setShowScenarioDirectory(false)}
+              className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 text-xs font-mono"
+              title="Close Directory"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="p-3 border-b border-slate-800">
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" />
+              <input
+                type="text"
+                value={scenarioFilter}
+                onChange={(e) => setScenarioFilter(e.target.value)}
+                placeholder="Search scenarios..."
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 outline-none focus:border-indigo-500"
+              />
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
+            {scenarios
+              .filter(
+                (s) =>
+                  s.name.toLowerCase().includes(scenarioFilter.toLowerCase()) ||
+                  s.description.toLowerCase().includes(scenarioFilter.toLowerCase())
+              )
+              .map((scen, idx) => {
+                const isSelected = activeScenarioIdx === idx;
+                return (
+                  <div
+                    key={scen.id}
+                    onClick={() => {
+                      setActiveScenarioIdx(idx);
+                      setCurrentStepIdx(0);
+                      setIsPlaying(false);
+                    }}
+                    className={`p-3 rounded-xl border transition cursor-pointer ${
+                      isSelected
+                        ? 'bg-indigo-950/40 border-indigo-500 ring-1 ring-indigo-500/50'
+                        : 'bg-slate-950/60 border-slate-800/80 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs font-semibold text-white truncate max-w-[200px]">
+                        {scen.name}
+                      </span>
+                      <span
+                        className={`text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase border ${
+                          scen.type === 'success'
+                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                            : scen.type === 'edge_case'
+                            ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                            : 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                        }`}
+                      >
+                        {scen.type}
+                      </span>
+                    </div>
+
+                    <p className="text-[11px] text-slate-400 leading-relaxed mb-2 line-clamp-2">
+                      {scen.description}
+                    </p>
+
+                    <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono">
+                      <span>{scen.steps.length} Steps</span>
+                      <span>{scen.touchedComponents.length} Components</span>
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      )}
 
       {/* 2. Controls & Stepper Bar */}
       <div className="h-14 bg-slate-900/90 border-b border-slate-800 px-6 flex items-center justify-between z-10 shadow-md">
