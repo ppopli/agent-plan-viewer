@@ -1,0 +1,72 @@
+{
+  "name": "agent-plan-viewer",
+  "version": "1.0.0",
+  "description": "Interactive visual viewer and two-way editor for AI agent implementation plans",
+  "main": "dist/cli/index.js",
+  "bin": {
+    "agent-plan-viewer": "./bin/cli.js"
+  },
+  "type": "module",
+  "scripts": {
+    "dev:web": "vite",
+    "build:web": "vite build",
+    "build:cli": "tsc -p tsconfig.cli.json",
+    "build": "npm run build:web && npm run build:cli",
+    "start": "tsx src/cli/index.ts",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test": "vitest run tests/unit tests/integration",
+    "test:e2e": "vitest run tests/e2e"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "plan",
+    "viewer",
+    "claude",
+    "codex",
+    "cursor",
+    "mermaid",
+    "react-flow",
+    "interactive"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@xyflow/react": "^12.4.4",
+    "chalk": "^5.4.1",
+    "chokidar": "^4.0.3",
+    "clsx": "^2.1.1",
+    "commander": "^13.1.0",
+    "dagre": "^0.8.5",
+    "express": "^4.21.2",
+    "lucide-react": "^0.477.0",
+    "marked": "^15.0.7",
+    "open": "^10.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^3.0.2",
+    "ws": "^8.18.1"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.2.0",
+    "@types/dagre": "^0.7.52",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.13.9",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@types/supertest": "^6.0.2",
+    "@types/ws": "^8.5.14",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "jsdom": "^26.0.0",
+    "postcss": "^8.5.3",
+    "puppeteer": "^24.4.0",
+    "supertest": "^7.0.0",
+    "tailwindcss": "^3.4.17",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3",
+    "vite": "^6.2.0",
+    "vitest": "^3.0.7"
+  }
+}
