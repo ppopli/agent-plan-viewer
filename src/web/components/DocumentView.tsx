@@ -9,10 +9,12 @@ import {
   FilePlus,
   FileDiff,
   MessageSquare,
-  HelpCircle,
   ArrowUp,
   ArrowDown,
   Sparkles,
+  Edit3,
+  Check,
+  StickyNote,
 } from 'lucide-react';
 
 interface DocumentViewProps {
@@ -24,22 +26,81 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
   planState,
   onStateChange,
 }) => {
+  const [isEditingGoal, setIsEditingGoal] = useState(false);
   const [newTaskText, setNewTaskText] = useState('');
+  const [activeTaskNoteId, setActiveTaskNoteId] = useState<string | null>(null);
+  const [taskNoteInput, setTaskNoteInput] = useState('');
+
+  // Helper to append automatic instruction notes to userInstructions
+  const appendAutoInstruction = (note: string, baseState = planState): string => {
+    const current = (baseState.userInstructions || '').trim();
+    const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const formatted = `[${timestamp}] ${note}`;
+    if (!current) return formatted;
+    return `${current}\n${formatted}`;
+  };
 
   // Handle task checkbox toggle
   const toggleTask = (taskId: string) => {
+    const targetTask = planState.tasks.find((t) => t.id === taskId);
+    if (!targetTask) return;
+
+    const newStatus = !targetTask.completed;
     const nextTasks = planState.tasks.map((t) =>
-      t.id === taskId ? { ...t, completed: !t.completed } : t
+      t.id === taskId ? { ...t, completed: newStatus } : t
     );
-    onStateChange({ ...planState, tasks: nextTasks });
+
+    const logMsg = newStatus
+      ? `Completed task: "${targetTask.title}"`
+      : `Re-opened task: "${targetTask.title}"`;
+
+    const updatedInstructions = appendAutoInstruction(logMsg);
+
+    onStateChange({
+      ...planState,
+      tasks: nextTasks,
+      userInstructions: updatedInstructions,
+    });
   };
 
   // Handle task text edit
   const updateTaskTitle = (taskId: string, newTitle: string) => {
+    const targetTask = planState.tasks.find((t) => t.id === taskId);
     const nextTasks = planState.tasks.map((t) =>
       t.id === taskId ? { ...t, title: newTitle } : t
     );
-    onStateChange({ ...planState, tasks: nextTasks });
+
+    onStateChange({
+      ...planState,
+      tasks: nextTasks,
+    });
+  };
+
+  // Save task note
+  const saveTaskNote = (taskId: string) => {
+    if (!taskNoteInput.trim()) {
+      setActiveTaskNoteId(null);
+      return;
+    }
+    const targetTask = planState.tasks.find((t) => t.id === taskId);
+    if (!targetTask) return;
+
+    const note = taskNoteInput.trim();
+    const nextTasks = planState.tasks.map((t) =>
+      t.id === taskId ? { ...t, notes: note } : t
+    );
+
+    const logMsg = `Task note for "${targetTask.title}": ${note}`;
+    const updatedInstructions = appendAutoInstruction(logMsg);
+
+    onStateChange({
+      ...planState,
+      tasks: nextTasks,
+      userInstructions: updatedInstructions,
+    });
+
+    setActiveTaskNoteId(null);
+    setTaskNoteInput('');
   };
 
   // Add new task
@@ -51,20 +112,34 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
       completed: false,
       indent: 0,
     };
+
+    const logMsg = `Added new task: "${newTaskText.trim()}"`;
+    const updatedInstructions = appendAutoInstruction(logMsg);
+
     onStateChange({
       ...planState,
       tasks: [...planState.tasks, newTask],
+      userInstructions: updatedInstructions,
     });
     setNewTaskText('');
   };
 
   // Delete task
   const deleteTask = (taskId: string) => {
+    const targetTask = planState.tasks.find((t) => t.id === taskId);
     const nextTasks = planState.tasks.filter((t) => t.id !== taskId);
-    onStateChange({ ...planState, tasks: nextTasks });
+
+    const logMsg = targetTask ? `Removed task: "${targetTask.title}"` : 'Removed task';
+    const updatedInstructions = appendAutoInstruction(logMsg);
+
+    onStateChange({
+      ...planState,
+      tasks: nextTasks,
+      userInstructions: updatedInstructions,
+    });
   };
 
-  // Move task up / down
+  // Move task
   const moveTask = (idx: number, direction: 'up' | 'down') => {
     const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
     if (targetIdx < 0 || targetIdx >= planState.tasks.length) return;
@@ -74,7 +149,7 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
     onStateChange({ ...planState, tasks: nextTasks });
   };
 
-  // Update Goal Title or Description
+  // Update Goal
   const updateGoal = (field: 'title' | 'description', value: string) => {
     onStateChange({
       ...planState,
@@ -85,40 +160,57 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
     });
   };
 
-  // Update User Instructions
-  const updateInstructions = (text: string) => {
-    onStateChange({
-      ...planState,
-      userInstructions: text,
-    });
-  };
-
   return (
     <div className="max-w-5xl mx-auto py-8 px-4 space-y-8 animate-in fade-in duration-150">
-      {/* 1. Goal & Executive Summary Card */}
+      {/* 1. Execution Target: Rich HTML Card with inline edit toggle */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
         <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-emerald-400 mb-2">
-          <Sparkles className="w-4 h-4" />
-          <span>Execution Target</span>
+
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-emerald-400">
+            <Sparkles className="w-4 h-4" />
+            <span>Execution Target & Architectural Scope</span>
+          </div>
+
+          <button
+            onClick={() => setIsEditingGoal(!isEditingGoal)}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 transition"
+          >
+            {isEditingGoal ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Edit3 className="w-3.5 h-3.5" />}
+            <span>{isEditingGoal ? 'Done Editing' : 'Edit Target'}</span>
+          </button>
         </div>
-        <input
-          type="text"
-          value={planState.goal.title}
-          onChange={(e) => updateGoal('title', e.target.value)}
-          className="text-2xl font-bold bg-transparent text-white border-b border-transparent hover:border-slate-700 focus:border-emerald-500 focus:outline-none w-full pb-1 mb-3 transition"
-          placeholder="Plan Goal Title"
-        />
-        <textarea
-          value={planState.goal.description}
-          onChange={(e) => updateGoal('description', e.target.value)}
-          rows={3}
-          className="w-full bg-slate-950/60 border border-slate-800 rounded-xl p-3 text-sm text-slate-300 focus:outline-none focus:border-emerald-500/50 resize-y transition"
-          placeholder="Summary of what the plan accomplishes..."
-        />
+
+        {isEditingGoal ? (
+          <div className="space-y-3">
+            <input
+              type="text"
+              value={planState.goal.title}
+              onChange={(e) => updateGoal('title', e.target.value)}
+              className="text-xl font-bold bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white w-full focus:outline-none focus:border-emerald-500"
+              placeholder="Plan Goal Title"
+            />
+            <textarea
+              value={planState.goal.description}
+              onChange={(e) => updateGoal('description', e.target.value)}
+              rows={3}
+              className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-slate-200 focus:outline-none focus:border-emerald-500 resize-y"
+              placeholder="Describe what the plan accomplishes..."
+            />
+          </div>
+        ) : (
+          <div>
+            <h1 className="text-2xl font-bold text-white mb-2 tracking-tight">
+              {planState.goal.title}
+            </h1>
+            <p className="text-sm text-slate-300 leading-relaxed bg-slate-950/40 p-3.5 rounded-xl border border-slate-800/80">
+              {planState.goal.description || 'AI-generated plan overview.'}
+            </p>
+          </div>
+        )}
       </div>
 
-      {/* 2. Interactive Tasks & Checklists */}
+      {/* 2. Interactive Tasks & Inline Comments */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
@@ -128,7 +220,9 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
               {planState.tasks.filter((t) => t.completed).length} / {planState.tasks.length} done
             </span>
           </div>
-          <span className="text-xs text-slate-500">Click checkboxes or edit task text directly</span>
+          <span className="text-xs text-slate-400">
+            Edits & task notes automatically append to Agent Feedback below
+          </span>
         </div>
 
         {/* Task List */}
@@ -136,55 +230,119 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
           {planState.tasks.map((task, idx) => (
             <div
               key={task.id}
-              className={`group flex items-center gap-3 p-2.5 rounded-xl border transition ${
+              className={`group rounded-xl border transition ${
                 task.completed
                   ? 'bg-slate-950/40 border-slate-800/60 opacity-60'
                   : 'bg-slate-800/40 border-slate-700/60 hover:border-slate-600'
               }`}
               style={{ marginLeft: `${task.indent * 20}px` }}
             >
-              <button
-                onClick={() => toggleTask(task.id)}
-                className="text-slate-400 hover:text-emerald-400 transition"
-              >
-                {task.completed ? (
-                  <CheckSquare className="w-4 h-4 text-emerald-400" />
-                ) : (
-                  <Square className="w-4 h-4" />
-                )}
-              </button>
+              <div className="flex items-center gap-3 p-2.5">
+                <button
+                  onClick={() => toggleTask(task.id)}
+                  className="text-slate-400 hover:text-emerald-400 transition"
+                  title="Toggle task completion"
+                >
+                  {task.completed ? (
+                    <CheckSquare className="w-4 h-4 text-emerald-400" />
+                  ) : (
+                    <Square className="w-4 h-4" />
+                  )}
+                </button>
 
-              <input
-                type="text"
-                value={task.title}
-                onChange={(e) => updateTaskTitle(task.id, e.target.value)}
-                className={`flex-1 bg-transparent text-sm focus:outline-none border-b border-transparent focus:border-emerald-500 transition ${
-                  task.completed ? 'line-through text-slate-500' : 'text-slate-200'
-                }`}
-              />
+                <input
+                  type="text"
+                  value={task.title}
+                  onChange={(e) => updateTaskTitle(task.id, e.target.value)}
+                  className={`flex-1 bg-transparent text-sm focus:outline-none border-b border-transparent focus:border-emerald-500 transition ${
+                    task.completed ? 'line-through text-slate-500' : 'text-slate-200'
+                  }`}
+                />
 
-              <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition">
-                <button
-                  onClick={() => moveTask(idx, 'up')}
-                  disabled={idx === 0}
-                  className="p-1 rounded text-slate-400 hover:text-white disabled:opacity-20"
-                >
-                  <ArrowUp className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={() => moveTask(idx, 'down')}
-                  disabled={idx === planState.tasks.length - 1}
-                  className="p-1 rounded text-slate-400 hover:text-white disabled:opacity-20"
-                >
-                  <ArrowDown className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={() => deleteTask(task.id)}
-                  className="p-1 rounded text-slate-400 hover:text-rose-400"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => {
+                      setActiveTaskNoteId(activeTaskNoteId === task.id ? null : task.id);
+                      setTaskNoteInput(task.notes || '');
+                    }}
+                    title="Add inline feedback note for agent on this task"
+                    className={`p-1.5 rounded-lg text-xs transition ${
+                      task.notes
+                        ? 'bg-indigo-500/20 text-indigo-300'
+                        : 'text-slate-400 hover:text-indigo-300 hover:bg-slate-700'
+                    }`}
+                  >
+                    <StickyNote className="w-3.5 h-3.5" />
+                  </button>
+
+                  <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition">
+                    <button
+                      onClick={() => moveTask(idx, 'up')}
+                      disabled={idx === 0}
+                      className="p-1 rounded text-slate-400 hover:text-white disabled:opacity-20"
+                    >
+                      <ArrowUp className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => moveTask(idx, 'down')}
+                      disabled={idx === planState.tasks.length - 1}
+                      className="p-1 rounded text-slate-400 hover:text-white disabled:opacity-20"
+                    >
+                      <ArrowDown className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => deleteTask(task.id)}
+                      className="p-1 rounded text-slate-400 hover:text-rose-400"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
               </div>
+
+              {/* Existing note or inline note editor */}
+              {(task.notes || activeTaskNoteId === task.id) && (
+                <div className="px-3 pb-3 pt-1 border-t border-slate-800/60 bg-slate-950/40 rounded-b-xl">
+                  {activeTaskNoteId === task.id ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={taskNoteInput}
+                        onChange={(e) => setTaskNoteInput(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && saveTaskNote(task.id)}
+                        placeholder="Add specific instructions for this task..."
+                        className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white outline-none focus:border-indigo-500"
+                        autoFocus
+                      />
+                      <button
+                        onClick={() => saveTaskNote(task.id)}
+                        className="px-2.5 py-1 rounded-lg text-xs bg-indigo-600 hover:bg-indigo-500 text-white font-medium"
+                      >
+                        Save
+                      </button>
+                      <button
+                        onClick={() => setActiveTaskNoteId(null)}
+                        className="px-2 py-1 rounded-lg text-xs text-slate-400 hover:text-white"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between text-xs text-indigo-300 font-mono">
+                      <span>Note: {task.notes}</span>
+                      <button
+                        onClick={() => {
+                          setActiveTaskNoteId(task.id);
+                          setTaskNoteInput(task.notes || '');
+                        }}
+                        className="text-[11px] text-slate-400 hover:text-white"
+                      >
+                        Edit
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -252,21 +410,24 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
         </div>
       )}
 
-      {/* 4. Instructions & Comments for Agent */}
+      {/* 4. Agent Instructions & Direct Feedback with Live Auto-population */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
-        <div className="flex items-center gap-2 mb-2">
-          <MessageSquare className="w-5 h-5 text-indigo-400" />
-          <h2 className="text-base font-semibold text-white">Agent Instructions & Direct Feedback</h2>
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <MessageSquare className="w-5 h-5 text-indigo-400" />
+            <h2 className="text-base font-semibold text-white">Agent Instructions & Direct Feedback</h2>
+          </div>
+          <span className="text-[11px] text-emerald-400 font-mono">Auto-populates from task edits & inline notes</span>
         </div>
         <p className="text-xs text-slate-400 mb-3">
-          Type instructions or specific requirements here. These are explicitly formatted and delivered to the waiting agent upon approval or revision request.
+          This section is automatically updated as you toggle or annotate tasks above. You can also edit, format, or type additional instructions directly below:
         </p>
         <textarea
           value={planState.userInstructions || ''}
-          onChange={(e) => updateInstructions(e.target.value)}
-          rows={3}
-          placeholder="e.g. Ensure we add automated tests for the token expiration edge cases. Use Redis instead of memory cache..."
-          className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 transition"
+          onChange={(e) => onStateChange({ ...planState, userInstructions: e.target.value })}
+          rows={5}
+          placeholder="e.g. Ensure connection pooling is configured. Use Redis distributed lock..."
+          className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3.5 text-xs font-mono text-slate-200 focus:outline-none focus:border-indigo-500 transition leading-relaxed"
         />
       </div>
     </div>

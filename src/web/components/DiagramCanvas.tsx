@@ -10,6 +10,7 @@ import {
   applyNodeChanges,
   applyEdgeChanges,
   addEdge,
+  reconnectEdge,
   Connection,
   Handle,
   Position,
@@ -22,16 +23,15 @@ import {
   Layers,
   Router,
   User,
-  Plus,
   Trash2,
   Code2,
   LayoutGrid,
-  Sparkles,
+  Link2,
 } from 'lucide-react';
 import { PlanState, ParsedDiagram, DiagramNode, DiagramEdge, NodeType } from '../../core/types.js';
 import { autoLayout, serializeToMermaid } from '../../core/mermaid-graph-bridge.js';
 
-// Custom Node Component
+// Custom 4-Way Node Component with Handles on all 4 boundaries and delete button
 const CustomDiagramNode: React.FC<NodeProps> = ({ id, data, selected }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [label, setLabel] = useState((data.label as string) || id);
@@ -57,13 +57,13 @@ const CustomDiagramNode: React.FC<NodeProps> = ({ id, data, selected }) => {
   const getBgStyle = () => {
     switch (nodeType) {
       case 'database':
-        return 'border-amber-500/40 bg-amber-950/20';
+        return 'border-amber-500/40 bg-amber-950/30';
       case 'queue':
-        return 'border-purple-500/40 bg-purple-950/20';
+        return 'border-purple-500/40 bg-purple-950/30';
       case 'gateway':
-        return 'border-blue-500/40 bg-blue-950/20';
+        return 'border-blue-500/40 bg-blue-950/30';
       case 'actor':
-        return 'border-emerald-500/40 bg-emerald-950/20';
+        return 'border-emerald-500/40 bg-emerald-950/30';
       case 'service':
       default:
         return 'border-indigo-500/40 bg-slate-900';
@@ -79,20 +79,52 @@ const CustomDiagramNode: React.FC<NodeProps> = ({ id, data, selected }) => {
 
   return (
     <div
-      className={`px-4 py-3 rounded-xl border-2 shadow-lg min-w-[160px] text-white transition-all ${getBgStyle()} ${
-        selected ? 'ring-2 ring-emerald-400 border-emerald-400' : ''
+      className={`group relative px-4 py-3 rounded-xl border-2 shadow-lg min-w-[170px] text-white transition-all ${getBgStyle()} ${
+        selected ? 'ring-2 ring-emerald-400 border-emerald-400 shadow-emerald-950' : ''
       }`}
     >
-      <Handle type="target" position={Position.Top} className="!bg-slate-400 !w-2.5 !h-2.5" />
-      <Handle type="target" position={Position.Left} className="!bg-slate-400 !w-2.5 !h-2.5" />
+      {/* 4-Way Handles (Top, Right, Bottom, Left) - Both Source & Target on each boundary */}
+      {/* Top Handles */}
+      <Handle type="target" position={Position.Top} id="top-tgt" className="!bg-emerald-400 !w-3 !h-3 !-top-1.5 hover:!scale-125 transition" />
+      <Handle type="source" position={Position.Top} id="top-src" className="!bg-indigo-400 !w-2 !h-2 !-top-1 opacity-0 hover:opacity-100" />
 
-      <div className="flex items-center gap-2 mb-1">
-        <div className="p-1 rounded bg-slate-800/80 border border-slate-700">{getIcon()}</div>
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-          {nodeType}
-        </span>
+      {/* Right Handles */}
+      <Handle type="source" position={Position.Right} id="right-src" className="!bg-indigo-400 !w-3 !h-3 !-right-1.5 hover:!scale-125 transition" />
+      <Handle type="target" position={Position.Right} id="right-tgt" className="!bg-emerald-400 !w-2 !h-2 !-right-1 opacity-0 hover:opacity-100" />
+
+      {/* Bottom Handles */}
+      <Handle type="source" position={Position.Bottom} id="bottom-src" className="!bg-indigo-400 !w-3 !h-3 !-bottom-1.5 hover:!scale-125 transition" />
+      <Handle type="target" position={Position.Bottom} id="bottom-tgt" className="!bg-emerald-400 !w-2 !h-2 !-bottom-1 opacity-0 hover:opacity-100" />
+
+      {/* Left Handles */}
+      <Handle type="target" position={Position.Left} id="left-tgt" className="!bg-emerald-400 !w-3 !h-3 !-left-1.5 hover:!scale-125 transition" />
+      <Handle type="source" position={Position.Left} id="left-src" className="!bg-indigo-400 !w-2 !h-2 !-left-1 opacity-0 hover:opacity-100" />
+
+      {/* Node Header with Type Icon and Delete Button */}
+      <div className="flex items-center justify-between mb-1.5">
+        <div className="flex items-center gap-1.5">
+          <div className="p-1 rounded bg-slate-800/90 border border-slate-700">{getIcon()}</div>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            {nodeType}
+          </span>
+        </div>
+
+        {/* Delete Node Button */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            if (data.onDeleteNode && typeof data.onDeleteNode === 'function') {
+              (data.onDeleteNode as (id: string) => void)(id);
+            }
+          }}
+          title="Delete component"
+          className="p-1 rounded text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 opacity-70 group-hover:opacity-100 transition"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
       </div>
 
+      {/* Node Label */}
       {isEditing ? (
         <input
           type="text"
@@ -112,9 +144,6 @@ const CustomDiagramNode: React.FC<NodeProps> = ({ id, data, selected }) => {
           {label}
         </div>
       )}
-
-      <Handle type="source" position={Position.Bottom} className="!bg-emerald-400 !w-2.5 !h-2.5" />
-      <Handle type="source" position={Position.Right} className="!bg-emerald-400 !w-2.5 !h-2.5" />
     </div>
   );
 };
@@ -130,17 +159,13 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
 }) => {
   const [selectedDiagIdx, setSelectedDiagIdx] = useState(0);
   const [showMermaidCode, setShowMermaidCode] = useState(false);
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
 
   const diagram: ParsedDiagram | undefined = planState.diagrams[selectedDiagIdx];
 
-  const nodeTypes = useMemo(
-    () => ({
-      custom: CustomDiagramNode,
-    }),
-    []
-  );
+  const nodeTypes = useMemo(() => ({ custom: CustomDiagramNode }), []);
 
-  // Update node label callback
+  // Update node label
   const handleNodeLabelChange = useCallback(
     (nodeId: string, newLabel: string) => {
       if (!diagram) return;
@@ -150,6 +175,38 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
       const nextDiagrams = [...planState.diagrams];
       nextDiagrams[selectedDiagIdx] = { ...diagram, nodes: nextNodes };
       onStateChange({ ...planState, diagrams: nextDiagrams });
+    },
+    [diagram, planState, selectedDiagIdx, onStateChange]
+  );
+
+  // Delete node
+  const handleDeleteNode = useCallback(
+    (nodeId: string) => {
+      if (!diagram) return;
+      const nextNodes = diagram.nodes.filter((n) => n.id !== nodeId);
+      const nextEdges = diagram.edges.filter(
+        (e) => e.source !== nodeId && e.target !== nodeId
+      );
+      const nextDiagrams = [...planState.diagrams];
+      nextDiagrams[selectedDiagIdx] = {
+        ...diagram,
+        nodes: nextNodes,
+        edges: nextEdges,
+      };
+      onStateChange({ ...planState, diagrams: nextDiagrams });
+    },
+    [diagram, planState, selectedDiagIdx, onStateChange]
+  );
+
+  // Delete selected edge
+  const handleDeleteEdge = useCallback(
+    (edgeId: string) => {
+      if (!diagram) return;
+      const nextEdges = diagram.edges.filter((e) => e.id !== edgeId);
+      const nextDiagrams = [...planState.diagrams];
+      nextDiagrams[selectedDiagIdx] = { ...diagram, edges: nextEdges };
+      onStateChange({ ...planState, diagrams: nextDiagrams });
+      setSelectedEdgeId(null);
     },
     [diagram, planState, selectedDiagIdx, onStateChange]
   );
@@ -166,31 +223,37 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
         type: n.type,
         shape: n.shape,
         onLabelChange: handleNodeLabelChange,
+        onDeleteNode: handleDeleteNode,
       },
     }));
-  }, [diagram, handleNodeLabelChange]);
+  }, [diagram, handleNodeLabelChange, handleDeleteNode]);
 
-  // React Flow edges
+  // React Flow edges with selection styling
   const flowEdges: Edge[] = useMemo(() => {
     if (!diagram) return [];
-    return diagram.edges.map((e) => ({
-      id: e.id,
-      source: e.source,
-      target: e.target,
-      label: e.label,
-      animated: e.animated,
-      style: {
-        stroke: e.style === 'dashed' ? '#94a3b8' : '#22c55e',
-        strokeWidth: e.style === 'thick' ? 3 : 1.5,
-        strokeDasharray: e.style === 'dashed' ? '5,5' : undefined,
-      },
-      labelStyle: { fill: '#cbd5e1', fontSize: 11, fontWeight: 500 },
-      labelBgStyle: { fill: '#0f172a', rx: 4, ry: 4 },
-      labelBgPadding: [6, 4] as [number, number],
-    }));
-  }, [diagram]);
+    return diagram.edges.map((e) => {
+      const isSelected = selectedEdgeId === e.id;
+      return {
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        sourceHandle: e.sourceHandle,
+        targetHandle: e.targetHandle,
+        label: e.label,
+        reconnectable: true,
+        style: {
+          stroke: isSelected ? '#f59e0b' : e.style === 'dashed' ? '#94a3b8' : '#22c55e',
+          strokeWidth: isSelected ? 3.5 : e.style === 'thick' ? 3 : 1.5,
+          strokeDasharray: e.style === 'dashed' ? '5,5' : undefined,
+        },
+        labelStyle: { fill: '#cbd5e1', fontSize: 11, fontWeight: 500 },
+        labelBgStyle: { fill: '#0f172a', rx: 4, ry: 4 },
+        labelBgPadding: [6, 4] as [number, number],
+      };
+    });
+  }, [diagram, selectedEdgeId]);
 
-  // Handle node drag stop or deletion
+  // Node position & removal handling
   const onNodesChange = useCallback(
     (changes: any) => {
       if (!diagram) return;
@@ -223,7 +286,7 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
     [diagram, planState, selectedDiagIdx, onStateChange]
   );
 
-  // Handle edge changes / removal
+  // Edge changes handling
   const onEdgesChange = useCallback(
     (changes: any) => {
       if (!diagram) return;
@@ -234,6 +297,12 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
         if (change.type === 'remove') {
           nextEdges = nextEdges.filter((e) => e.id !== change.id);
           hasChange = true;
+        } else if (change.type === 'select') {
+          if (change.selected) {
+            setSelectedEdgeId(change.id);
+          } else if (selectedEdgeId === change.id) {
+            setSelectedEdgeId(null);
+          }
         }
       }
 
@@ -243,10 +312,10 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
         onStateChange({ ...planState, diagrams: nextDiagrams });
       }
     },
-    [diagram, planState, selectedDiagIdx, onStateChange]
+    [diagram, planState, selectedDiagIdx, onStateChange, selectedEdgeId]
   );
 
-  // Handle new connection drawn by user
+  // Connect new edge (connectable on any 4 handles)
   const onConnect = useCallback(
     (connection: Connection) => {
       if (!diagram || !connection.source || !connection.target) return;
@@ -254,6 +323,8 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
         id: `e-${connection.source}-${connection.target}-${Date.now()}`,
         source: connection.source,
         target: connection.target,
+        sourceHandle: connection.sourceHandle || undefined,
+        targetHandle: connection.targetHandle || undefined,
         style: 'solid',
         animated: true,
       };
@@ -263,6 +334,31 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
         ...diagram,
         edges: [...diagram.edges, newEdge],
       };
+      onStateChange({ ...planState, diagrams: nextDiagrams });
+    },
+    [diagram, planState, selectedDiagIdx, onStateChange]
+  );
+
+  // Reconnect existing edge to a new node / handle
+  const onReconnect = useCallback(
+    (oldEdge: Edge, newConnection: Connection) => {
+      if (!diagram || !newConnection.source || !newConnection.target) return;
+
+      const nextEdges = diagram.edges.map((e) => {
+        if (e.id === oldEdge.id) {
+          return {
+            ...e,
+            source: newConnection.source,
+            target: newConnection.target,
+            sourceHandle: newConnection.sourceHandle || undefined,
+            targetHandle: newConnection.targetHandle || undefined,
+          };
+        }
+        return e;
+      });
+
+      const nextDiagrams = [...planState.diagrams];
+      nextDiagrams[selectedDiagIdx] = { ...diagram, edges: nextEdges };
       onStateChange({ ...planState, diagrams: nextDiagrams });
     },
     [diagram, planState, selectedDiagIdx, onStateChange]
@@ -285,8 +381,8 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
       id,
       label: defaultLabels[type] || 'New Node',
       type,
-      x: 150 + Math.random() * 200,
-      y: 150 + Math.random() * 150,
+      x: 200 + Math.random() * 200,
+      y: 200 + Math.random() * 150,
       shape: type === 'database' ? 'cylinder' : type === 'queue' ? 'subroutine' : 'box',
     };
 
@@ -379,6 +475,17 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
             </button>
           </div>
 
+          {/* Delete Edge Action if edge is selected */}
+          {selectedEdgeId && (
+            <button
+              onClick={() => handleDeleteEdge(selectedEdgeId)}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 transition"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Delete Connection</span>
+            </button>
+          )}
+
           <button
             onClick={handleAutoLayout}
             title="Auto-arrange nodes in clean layers"
@@ -411,7 +518,9 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
+            onReconnect={onReconnect}
             nodeTypes={nodeTypes}
+            deleteKeyCode={['Backspace', 'Delete']}
             fitView
             className="bg-slate-950"
           >
@@ -423,7 +532,7 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
               className="!bg-slate-900 !border-slate-800"
             />
             <Panel position="bottom-left" className="bg-slate-900/90 border border-slate-800 p-2.5 rounded-xl text-[11px] text-slate-400 shadow-lg">
-              <span className="font-semibold text-slate-300">Canvas Controls:</span> Drag nodes to reposition • Drag handles to link • Double-click node to edit label • Select & press Del to remove
+              <span className="font-semibold text-slate-300">4-Way Linking:</span> Connect from any edge boundary (Top/Right/Bottom/Left) • Drag edge ends to reconnect • Click edge/node to delete (Del key or trash icon)
             </Panel>
           </ReactFlow>
         </div>
@@ -441,7 +550,7 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
               {liveMermaid}
             </pre>
             <p className="text-[10px] text-slate-500 mt-2">
-              This syntax is dynamically generated from your visual node placements and will be written back to the plan markdown upon save/submit.
+              This syntax dynamically updates as you move, link, or delete nodes and edges on the canvas.
             </p>
           </div>
         )}

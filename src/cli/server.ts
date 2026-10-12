@@ -31,7 +31,7 @@ export class PlanViewerServer {
 
   constructor(options: ServerOptions) {
     this.planPath = path.resolve(options.planPath);
-    this.port = options.port || 4100;
+    this.port = options.port !== undefined ? options.port : 4100;
     this.onResolve = options.onResolve;
 
     // Load initial content
@@ -261,15 +261,13 @@ export class PlanViewerServer {
   public start(): Promise<number> {
     return new Promise((resolve, reject) => {
       this.httpServer.listen(this.port, () => {
+        const addr = this.httpServer.address();
+        if (addr && typeof addr === 'object') {
+          this.port = addr.port;
+        }
         resolve(this.port);
       }).on('error', (err: any) => {
-        if (err.code === 'EADDRINUSE') {
-          // Retry next port
-          this.port += 1;
-          this.httpServer.listen(this.port, () => resolve(this.port));
-        } else {
-          reject(err);
-        }
+        reject(err);
       });
     });
   }

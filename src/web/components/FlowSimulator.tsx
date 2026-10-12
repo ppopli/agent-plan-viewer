@@ -16,25 +16,29 @@ import {
   SkipBack,
   SkipForward,
   RotateCcw,
-  FastForward,
   Activity,
-  Layers,
   ArrowRight,
   CheckCircle,
   AlertTriangle,
-  Plus,
-  Trash2,
+  XCircle,
+  ListFilter,
+  PlaySquare,
+  Square,
+  Sparkles,
 } from 'lucide-react';
-import { PlanState, ParsedDiagram, FlowStep, DiagramNode } from '../../core/types.js';
+import { PlanState, ParsedDiagram, FlowStep, FlowScenario } from '../../core/types.js';
 
 // Custom Animated Node for Simulator
 const SimNode: React.FC<NodeProps> = ({ id, data }) => {
   const isSource = data.isSource as boolean;
   const isTarget = data.isTarget as boolean;
   const isInactive = data.isInactive as boolean;
+  const isFailed = data.isFailed as boolean;
 
   let highlightRing = 'border-slate-800 bg-slate-900';
-  if (isSource) {
+  if (isFailed && isTarget) {
+    highlightRing = 'border-rose-500 bg-rose-950/70 ring-4 ring-rose-500/40 animate-pulse';
+  } else if (isSource) {
     highlightRing = 'border-blue-500 bg-blue-950/60 ring-4 ring-blue-500/30';
   } else if (isTarget) {
     highlightRing = 'border-emerald-500 bg-emerald-950/60 ring-4 ring-emerald-500/30 animate-pulse';
@@ -58,9 +62,14 @@ const SimNode: React.FC<NodeProps> = ({ id, data }) => {
             Sender
           </span>
         )}
-        {isTarget && (
+        {isTarget && !isFailed && (
           <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.2 rounded-full font-semibold">
             Receiver
+          </span>
+        )}
+        {isTarget && isFailed && (
+          <span className="text-[10px] bg-rose-500/20 text-rose-300 px-1.5 py-0.2 rounded-full font-semibold">
+            Failed Component
           </span>
         )}
       </div>
@@ -87,39 +96,54 @@ export const FlowSimulator: React.FC<FlowSimulatorProps> = ({
   const [selectedDiagIdx, setSelectedDiagIdx] = useState(0);
   const diagram: ParsedDiagram | undefined = planState.diagrams[selectedDiagIdx];
 
+  const scenarios: FlowScenario[] = useMemo(() => {
+    if (!diagram) return [];
+    if (diagram.scenarios && diagram.scenarios.length > 0) {
+      return diagram.scenarios;
+    }
+    // Fallback if none exist
+    return [
+      {
+        id: 'scen-1',
+        name: 'Happy Path',
+        type: 'success',
+        description: 'Standard request flow execution',
+        steps: diagram.flowSteps || [],
+        touchedComponents: diagram.nodes.map((n) => n.id),
+      },
+    ];
+  }, [diagram]);
+
+  const [activeScenarioIdx, setActiveScenarioIdx] = useState(0);
+  const activeScenario: FlowScenario | undefined = scenarios[activeScenarioIdx];
+
   const [currentStepIdx, setCurrentStepIdx] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [speed, setSpeed] = useState<number>(1); // 0.5, 1, 2
+  const [isPlayAll, setIsPlayAll] = useState(false);
+  const [speed, setSpeed] = useState<number>(1);
 
   const timerRef = useRef<any>(null);
 
-  const flowSteps: FlowStep[] = useMemo(() => {
-    if (!diagram) return [];
-    if (diagram.flowSteps && diagram.flowSteps.length > 0) {
-      return diagram.flowSteps;
-    }
-    // Generate fallback steps from edges if diagram.flowSteps is empty
-    return diagram.edges.map((e, idx) => ({
-      stepNumber: idx + 1,
-      source: e.source,
-      target: e.target,
-      label: e.label || `Invoke ${e.target}`,
-      payload: `{"request": "${e.label || 'call'}"}`,
-      response: `{"status": 200}`,
-    }));
-  }, [diagram]);
+  const steps = activeScenario?.steps || [];
+  const currentStep: FlowStep | undefined = steps[currentStepIdx];
 
-  const currentStep: FlowStep | undefined = flowSteps[currentStepIdx];
-
-  // Auto-play interval
+  // Playback timer (Single scenario or Play All scenarios)
   useEffect(() => {
-    if (isPlaying && flowSteps.length > 0) {
+    if (isPlaying && steps.length > 0) {
       const intervalMs = 2000 / speed;
       timerRef.current = setInterval(() => {
         setCurrentStepIdx((prev) => {
-          if (prev >= flowSteps.length - 1) {
-            setIsPlaying(false);
-            return prev;
+          if (prev >= steps.length - 1) {
+            // Reached end of current scenario
+            if (isPlayAll && activeScenarioIdx < scenarios.length - 1) {
+              // Advance to next scenario
+              setActiveScenarioIdx((sIdx) => sIdx + 1);
+              return 0;
+            } else {
+              setIsPlaying(false);
+              setIsPlayAll(false);
+              return prev;
+            }
           }
           return prev + 1;
         });
@@ -131,16 +155,17 @@ export const FlowSimulator: React.FC<FlowSimulatorProps> = ({
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [isPlaying, speed, flowSteps.length]);
+  }, [isPlaying, isPlayAll, speed, steps.length, activeScenarioIdx, scenarios.length]);
 
   const nodeTypes = useMemo(() => ({ simNode: SimNode }), []);
 
-  // Flow nodes highlighting active source & target
+  // Sim nodes highlighting active source & target
   const simNodes: Node[] = useMemo(() => {
     if (!diagram) return [];
     return diagram.nodes.map((n) => {
       const isSource = currentStep?.source === n.id;
       const isTarget = currentStep?.target === n.id;
+      const isFailed = currentStep?.status === 'failure';
       const isInactive = currentStep && !isSource && !isTarget;
 
       return {
@@ -152,17 +177,20 @@ export const FlowSimulator: React.FC<FlowSimulatorProps> = ({
           type: n.type,
           isSource,
           isTarget,
+          isFailed,
           isInactive,
         },
       };
     });
   }, [diagram, currentStep]);
 
-  // Flow edges highlighting active hop with animated travelling pulses
+  // Sim edges
   const simEdges: Edge[] = useMemo(() => {
     if (!diagram) return [];
     return diagram.edges.map((e) => {
       const isActive = currentStep?.source === e.source && currentStep?.target === e.target;
+      const isFailed = currentStep?.status === 'failure';
+
       return {
         id: e.id,
         source: e.source,
@@ -170,12 +198,12 @@ export const FlowSimulator: React.FC<FlowSimulatorProps> = ({
         label: e.label,
         animated: isActive,
         style: {
-          stroke: isActive ? '#f59e0b' : '#334155',
+          stroke: isActive ? (isFailed ? '#f43f5e' : '#f59e0b') : '#334155',
           strokeWidth: isActive ? 4 : 1.5,
           opacity: isActive ? 1 : 0.3,
         },
         labelStyle: {
-          fill: isActive ? '#fcd34d' : '#64748b',
+          fill: isActive ? (isFailed ? '#fda4af' : '#fcd34d') : '#64748b',
           fontWeight: isActive ? 700 : 500,
           fontSize: 11,
         },
@@ -185,7 +213,7 @@ export const FlowSimulator: React.FC<FlowSimulatorProps> = ({
   }, [diagram, currentStep]);
 
   const handleNext = () => {
-    if (currentStepIdx < flowSteps.length - 1) {
+    if (currentStepIdx < steps.length - 1) {
       setCurrentStepIdx(currentStepIdx + 1);
     }
   };
@@ -198,10 +226,24 @@ export const FlowSimulator: React.FC<FlowSimulatorProps> = ({
 
   const handleReset = () => {
     setIsPlaying(false);
+    setIsPlayAll(false);
     setCurrentStepIdx(0);
   };
 
-  if (!diagram || flowSteps.length === 0) {
+  const handlePlayAll = () => {
+    setActiveScenarioIdx(0);
+    setCurrentStepIdx(0);
+    setIsPlayAll(true);
+    setIsPlaying(true);
+  };
+
+  const handleStopAll = () => {
+    setIsPlaying(false);
+    setIsPlayAll(false);
+    setCurrentStepIdx(0);
+  };
+
+  if (!diagram || scenarios.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-[calc(100vh-64px)] text-slate-400">
         <Activity className="w-12 h-12 mb-3 text-slate-600" />
@@ -218,18 +260,90 @@ export const FlowSimulator: React.FC<FlowSimulatorProps> = ({
 
   return (
     <div className="relative w-full h-[calc(100vh-64px)] bg-slate-950 flex flex-col overflow-hidden">
-      {/* Top Controls Bar */}
-      <div className="h-14 bg-slate-900 border-b border-slate-800 px-6 flex items-center justify-between z-10 shadow-md">
+      {/* 1. Top Scenarios Bar */}
+      <div className="bg-slate-900 border-b border-slate-800 px-6 py-2.5 flex items-center justify-between z-20">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 text-xs font-semibold text-slate-300">
+            <ListFilter className="w-4 h-4 text-indigo-400" />
+            <span>Execution Scenarios:</span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {scenarios.map((scen, idx) => {
+              const isSelected = activeScenarioIdx === idx;
+              const badgeColor =
+                scen.type === 'success'
+                  ? 'border-emerald-500/40 text-emerald-300 bg-emerald-950/40'
+                  : 'border-rose-500/40 text-rose-300 bg-rose-950/40';
+
+              return (
+                <button
+                  key={scen.id}
+                  onClick={() => {
+                    setActiveScenarioIdx(idx);
+                    setCurrentStepIdx(0);
+                    setIsPlaying(false);
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border transition ${
+                    isSelected
+                      ? `ring-2 ring-indigo-400 ${badgeColor} font-bold shadow-md`
+                      : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                  }`}
+                >
+                  {scen.type === 'success' ? (
+                    <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                  ) : (
+                    <XCircle className="w-3.5 h-3.5 text-rose-400" />
+                  )}
+                  <span>{scen.name}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Play All, Pause All, Stop All Playlist Controls */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handlePlayAll}
+            title="Run all scenarios sequentially 1 by 1"
+            className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm transition"
+          >
+            <PlaySquare className="w-3.5 h-3.5" />
+            <span>Play All Scenarios</span>
+          </button>
+          <button
+            onClick={() => setIsPlaying(false)}
+            title="Pause all scenarios"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
+          >
+            <Pause className="w-3.5 h-3.5" />
+            <span>Pause All</span>
+          </button>
+          <button
+            onClick={handleStopAll}
+            title="Stop all and reset"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-800 hover:bg-rose-500/20 text-slate-300 hover:text-rose-300 border border-slate-700 transition"
+          >
+            <Square className="w-3.5 h-3.5" />
+            <span>Stop All</span>
+          </button>
+        </div>
+      </div>
+
+      {/* 2. Controls & Stepper Bar */}
+      <div className="h-14 bg-slate-900/90 border-b border-slate-800 px-6 flex items-center justify-between z-10 shadow-md">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             <span className="p-1.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20">
               <Activity className="w-4 h-4" />
             </span>
             <div>
-              <span className="text-xs font-semibold text-white">Phase 2: Request Flow Simulator</span>
+              <span className="text-xs font-semibold text-white">
+                {activeScenario?.name}
+              </span>
               <div className="text-[11px] text-slate-400 font-mono">
-                Step {currentStepIdx + 1} of {flowSteps.length} (
-                {Math.round(((currentStepIdx + 1) / flowSteps.length) * 100)}%)
+                Step {currentStepIdx + 1} of {steps.length} ({Math.round(((currentStepIdx + 1) / steps.length) * 100)}%)
               </div>
             </div>
           </div>
@@ -255,7 +369,7 @@ export const FlowSimulator: React.FC<FlowSimulatorProps> = ({
             </button>
             <button
               onClick={() => setIsPlaying(!isPlaying)}
-              title={isPlaying ? 'Pause' : 'Play Simulation'}
+              title={isPlaying ? 'Pause' : 'Play Scenario'}
               className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-xs flex items-center gap-1.5 transition shadow-sm"
             >
               {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
@@ -263,7 +377,7 @@ export const FlowSimulator: React.FC<FlowSimulatorProps> = ({
             </button>
             <button
               onClick={handleNext}
-              disabled={currentStepIdx === flowSteps.length - 1}
+              disabled={currentStepIdx === steps.length - 1}
               title="Next Step"
               className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-30 transition"
             >
@@ -289,28 +403,27 @@ export const FlowSimulator: React.FC<FlowSimulatorProps> = ({
           </div>
         </div>
 
-        {/* Step Timeline Indicator */}
-        <div className="flex items-center gap-1 overflow-x-auto max-w-md py-1">
-          {flowSteps.map((step, idx) => (
-            <button
-              key={idx}
-              onClick={() => setCurrentStepIdx(idx)}
-              className={`h-2 rounded-full transition-all ${
-                idx === currentStepIdx
-                  ? 'w-8 bg-amber-400'
-                  : idx < currentStepIdx
-                  ? 'w-3 bg-emerald-500'
-                  : 'w-2 bg-slate-800'
-              }`}
-              title={`Step ${idx + 1}: ${step.label}`}
-            />
-          ))}
+        {/* Components Touched in this Scenario */}
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-slate-400">Components Touched:</span>
+          <div className="flex items-center gap-1">
+            {activeScenario?.touchedComponents.map((compId) => {
+              const node = diagram.nodes.find((n) => n.id === compId);
+              return (
+                <span
+                  key={compId}
+                  className="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 text-[10px] font-mono border border-slate-700"
+                >
+                  {node?.label || compId}
+                </span>
+              );
+            })}
+          </div>
         </div>
       </div>
 
-      {/* Main Canvas + Side Step Inspector HUD */}
+      {/* 3. Main Canvas + Step Inspector HUD */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Canvas */}
         <div className="flex-1 h-full relative">
           <ReactFlow
             nodes={simNodes}
@@ -330,14 +443,20 @@ export const FlowSimulator: React.FC<FlowSimulatorProps> = ({
             <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
               Step Inspector
             </span>
-            <span className="text-xs font-mono px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
-              Step #{currentStep?.stepNumber}
-            </span>
+            <div className="flex items-center gap-2">
+              {currentStep?.status === 'failure' && (
+                <span className="text-xs font-mono px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                  Failure Point
+                </span>
+              )}
+              <span className="text-xs font-mono px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                Step #{currentStep?.stepNumber}
+              </span>
+            </div>
           </div>
 
           {currentStep && (
             <div className="space-y-5 flex-1">
-              {/* Step Action Banner */}
               <div>
                 <h4 className="text-base font-bold text-white mb-1">{currentStep.label}</h4>
                 <div className="flex items-center gap-2 text-xs font-mono text-slate-300 bg-slate-950 p-2.5 rounded-xl border border-slate-800">
@@ -347,7 +466,6 @@ export const FlowSimulator: React.FC<FlowSimulatorProps> = ({
                 </div>
               </div>
 
-              {/* Mock Payload */}
               <div>
                 <label className="text-xs font-semibold text-slate-400 mb-1.5 block">
                   Request Payload / Headers:
@@ -357,33 +475,40 @@ export const FlowSimulator: React.FC<FlowSimulatorProps> = ({
                 </pre>
               </div>
 
-              {/* Expected Response */}
               <div>
                 <label className="text-xs font-semibold text-slate-400 mb-1.5 block flex items-center gap-1.5">
-                  <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                  {currentStep.status === 'failure' ? (
+                    <XCircle className="w-3.5 h-3.5 text-rose-400" />
+                  ) : (
+                    <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                  )}
                   Expected Response:
                 </label>
-                <pre className="bg-slate-950 border border-slate-800 rounded-xl p-3 font-mono text-xs text-emerald-300/90 overflow-x-auto">
+                <pre
+                  className={`bg-slate-950 border rounded-xl p-3 font-mono text-xs overflow-x-auto ${
+                    currentStep.status === 'failure'
+                      ? 'border-rose-500/40 text-rose-300'
+                      : 'border-slate-800 text-emerald-300/90'
+                  }`}
+                >
                   {currentStep.response || '{\n  "status": 200,\n  "ok": true\n}'}
                 </pre>
               </div>
 
-              {/* Verification & Failure Modes */}
               <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3 text-xs text-slate-300 space-y-1.5">
                 <div className="flex items-center gap-1.5 font-semibold text-slate-200">
                   <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
-                  Verification Check:
+                  Scenario Handling Check:
                 </div>
                 <p className="text-slate-400">
-                  Ensure timeout handling and retry policies are implemented between{' '}
-                  <code className="text-blue-300 font-mono">{sourceNode?.label}</code> and{' '}
-                  <code className="text-emerald-300 font-mono">{targetNode?.label}</code>.
+                  {currentStep.status === 'failure'
+                    ? 'Failure detected! Downstream error recovery or compensation transaction must be triggered.'
+                    : `Normal execution path. Verified connection from ${sourceNode?.label} to ${targetNode?.label}.`}
                 </p>
               </div>
             </div>
           )}
 
-          {/* Stepper Navigation in HUD */}
           <div className="pt-4 border-t border-slate-800 flex items-center justify-between">
             <button
               onClick={handlePrev}
@@ -394,7 +519,7 @@ export const FlowSimulator: React.FC<FlowSimulatorProps> = ({
             </button>
             <button
               onClick={handleNext}
-              disabled={currentStepIdx === flowSteps.length - 1}
+              disabled={currentStepIdx === steps.length - 1}
               className="px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold disabled:opacity-30 transition"
             >
               Next Hop

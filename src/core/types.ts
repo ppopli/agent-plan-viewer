@@ -30,6 +30,8 @@ export interface DiagramEdge {
   id: string;
   source: string;
   target: string;
+  sourceHandle?: string;
+  targetHandle?: string;
   label?: string;
   style?: 'solid' | 'dashed' | 'thick';
   animated?: boolean;
@@ -43,6 +45,16 @@ export interface FlowStep {
   payload?: string;
   response?: string;
   notes?: string;
+  status?: 'success' | 'failure' | 'pending';
+}
+
+export interface FlowScenario {
+  id: string;
+  name: string;
+  type: 'success' | 'failure' | 'edge_case';
+  description: string;
+  steps: FlowStep[];
+  touchedComponents: string[];
 }
 
 export interface ParsedDiagram {
@@ -53,6 +65,7 @@ export interface ParsedDiagram {
   nodes: DiagramNode[];
   edges: DiagramEdge[];
   flowSteps: FlowStep[];
+  scenarios: FlowScenario[];
 }
 
 export interface GoalInfo {

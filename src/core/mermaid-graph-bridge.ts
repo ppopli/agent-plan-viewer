@@ -1,4 +1,4 @@
-import { DiagramNode, DiagramEdge, FlowStep, ParsedDiagram, NodeType } from './types.js';
+import { DiagramNode, DiagramEdge, FlowStep, FlowScenario, ParsedDiagram, NodeType } from './types.js';
 
 export function inferNodeType(id: string, label: string, shape?: string): NodeType {
   const text = `${id} ${label}`.toLowerCase();
@@ -17,13 +17,71 @@ export function inferNodeType(id: string, label: string, shape?: string): NodeTy
   return 'service';
 }
 
+function buildDefaultScenarios(nodes: DiagramNode[], edges: DiagramEdge[], steps: FlowStep[]): FlowScenario[] {
+  const touchedAll = Array.from(new Set(steps.flatMap(s => [s.source, s.target])));
+
+  const successScenario: FlowScenario = {
+    id: 'scen-success',
+    name: 'Happy Path: Standard Request Flow',
+    type: 'success',
+    description: 'Complete end-to-end execution where all components succeed.',
+    steps: steps.map(s => ({ ...s, status: 'success' })),
+    touchedComponents: touchedAll,
+  };
+
+  // Failure Scenario 1: Downstream Service/DB Failure
+  const failSteps: FlowStep[] = [];
+  const midPoint = Math.max(1, Math.floor(steps.length / 2));
+  for (let i = 0; i < steps.length; i++) {
+    if (i < midPoint) {
+      failSteps.push({ ...steps[i], status: 'success' });
+    } else if (i === midPoint) {
+      failSteps.push({
+        ...steps[i],
+        label: `FAILURE: ${steps[i].label} (500 Error / Timeout)`,
+        response: '{"status": 500, "error": "Connection Timeout / Resource Locked"}',
+        status: 'failure',
+      });
+      break; // Stops here
+    }
+  }
+
+  const downstreamFailScenario: FlowScenario = {
+    id: 'scen-downstream-fail',
+    name: 'Failure: Downstream Timeout & Rollback',
+    type: 'failure',
+    description: 'Simulates connection timeout at downstream layer and circuit breaker trigger.',
+    steps: failSteps,
+    touchedComponents: Array.from(new Set(failSteps.flatMap(s => [s.source, s.target]))),
+  };
+
+  // Failure Scenario 2: Gateway Auth / Validation Failure
+  const authFailSteps: FlowStep[] = steps.slice(0, 1).map(s => ({
+    ...s,
+    label: 'REJECTED: 401 Unauthorized / Token Expired at Gateway',
+    response: '{"status": 401, "error": "Invalid Token"}',
+    status: 'failure' as const,
+  }));
+
+  const authFailScenario: FlowScenario = {
+    id: 'scen-auth-fail',
+    name: 'Failure: Unauthorized / Invalid Token',
+    type: 'failure',
+    description: 'Request rejected at entry gateway before reaching internal microservices.',
+    steps: authFailSteps,
+    touchedComponents: Array.from(new Set(authFailSteps.flatMap(s => [s.source, s.target]))),
+  };
+
+  return [successScenario, downstreamFailScenario, authFailScenario];
+}
+
 /**
- * Parses Mermaid code into nodes, edges, and flow steps
+ * Parses Mermaid code into nodes, edges, flow steps, and multiple scenarios
  */
 export function parseMermaid(raw: string, diagramId = 'diag-1'): ParsedDiagram {
   const lines = raw.split('\n').map(l => l.trim()).filter(l => l.length > 0 && !l.startsWith('%%'));
   if (lines.length === 0) {
-    return { id: diagramId, type: 'flowchart', rawMermaid: raw, nodes: [], edges: [], flowSteps: [] };
+    return { id: diagramId, type: 'flowchart', rawMermaid: raw, nodes: [], edges: [], flowSteps: [], scenarios: [] };
   }
 
   const firstLine = lines[0].toLowerCase();
@@ -39,8 +97,6 @@ function parseFlowchart(raw: string, lines: string[], diagramId: string): Parsed
   const edges: DiagramEdge[] = [];
   const flowSteps: FlowStep[] = [];
 
-  // Match node definitions or edge definitions
-  // Node IDs are alphanumeric with optional underscores or hyphens not ending with hyphen
   const nodeDefRegex = /([a-zA-Z0-9_]+(?:-[a-zA-Z0-9_]+)*)\s*(\[\([^\)]+\)\]|\[\[[^\]]+\]\]|\{\{[^\}]+\}\}|\[[^\]]+\]|\([^\)]+\))/g;
   const edgeRegex = /([a-zA-Z0-9_]+(?:-[a-zA-Z0-9_]+)*)\s*(-->|-.->|==>|->)\s*(?:\|([^|]+)\|)?\s*([a-zA-Z0-9_]+(?:-[a-zA-Z0-9_]+)*)/g;
 
@@ -52,7 +108,6 @@ function parseFlowchart(raw: string, lines: string[], diagramId: string): Parsed
       continue;
     }
 
-    // Extract explicit node definitions
     let nodeMatch;
     while ((nodeMatch = nodeDefRegex.exec(line)) !== null) {
       const id = nodeMatch[1];
@@ -96,7 +151,6 @@ function parseFlowchart(raw: string, lines: string[], diagramId: string): Parsed
       }
     }
 
-    // Extract edges
     let edgeMatch;
     while ((edgeMatch = edgeRegex.exec(line)) !== null) {
       const source = edgeMatch[1];
@@ -147,12 +201,15 @@ function parseFlowchart(raw: string, lines: string[], diagramId: string): Parsed
         label: edgeLabel || `Call ${nodeMap.get(target)?.label || target}`,
         payload: `{"from": "${source}", "to": "${target}"}`,
         response: `{"status": 200, "ok": true}`,
+        status: 'success',
       });
     }
   }
 
   const nodes = Array.from(nodeMap.values());
   autoLayout(nodes, edges);
+
+  const scenarios = buildDefaultScenarios(nodes, edges, flowSteps);
 
   return {
     id: diagramId,
@@ -161,6 +218,7 @@ function parseFlowchart(raw: string, lines: string[], diagramId: string): Parsed
     nodes,
     edges,
     flowSteps,
+    scenarios,
   };
 }
 
@@ -239,17 +297,22 @@ function parseSequenceDiagram(raw: string, lines: string[], diagramId: string): 
         label,
         payload: `{"request": "${label}"}`,
         response: arrow.includes('--') ? `{"status": "ACK", "response": "${label}"}` : undefined,
+        status: 'success',
       });
     }
   }
+
+  const nodes = Array.from(nodeMap.values());
+  const scenarios = buildDefaultScenarios(nodes, edges, flowSteps);
 
   return {
     id: diagramId,
     type: 'sequence',
     rawMermaid: raw,
-    nodes: Array.from(nodeMap.values()),
+    nodes,
     edges,
     flowSteps,
+    scenarios,
   };
 }
 

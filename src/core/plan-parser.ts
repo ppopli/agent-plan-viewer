@@ -1,6 +1,10 @@
 import { PlanState, PlanTask, FileChange, GoalInfo, ParsedDiagram } from './types.js';
 import { parseMermaid } from './mermaid-graph-bridge.js';
 
+function cleanTextContent(text: string): string {
+  return text.replace(/```mermaid[\s\S]*?```/gi, '').trim();
+}
+
 export function parsePlanMarkdown(markdown: string): PlanState {
   const lines = markdown.split('\n');
 
@@ -55,19 +59,18 @@ export function parsePlanMarkdown(markdown: string): PlanState {
     });
   }
 
-  // Extract Goal Description from sections
+  // Extract Goal Description from sections, cleaning out any raw mermaid blocks
   const goalSection = sections.find(s =>
     s.heading.toLowerCase().includes('goal') ||
     s.heading.toLowerCase().includes('overview') ||
     s.heading.toLowerCase().includes('description')
   );
-  if (goalSection && goalSection.content.trim().length > 0) {
-    goalDesc = goalSection.content.trim().slice(0, 500);
+  if (goalSection && cleanTextContent(goalSection.content).length > 0) {
+    goalDesc = cleanTextContent(goalSection.content).slice(0, 500);
   } else {
-    // If not found, use content under first section or H1
-    const firstNonEmpty = sections.find(s => s.content.trim().length > 0);
+    const firstNonEmpty = sections.find(s => cleanTextContent(s.content).length > 0);
     if (firstNonEmpty) {
-      goalDesc = firstNonEmpty.content.trim().slice(0, 500);
+      goalDesc = cleanTextContent(firstNonEmpty.content).slice(0, 500);
     }
   }
 
@@ -126,7 +129,6 @@ export function parsePlanMarkdown(markdown: string): PlanState {
     });
   }
 
-  // Also check for markdown tables or bulleted files
   const bulletFileRegex = /[-*+]\s+`([^`]+)`\s*:\s*(\[(NEW|MODIFY|DELETE)\])?\s*(.*)/gi;
   let bMatch;
   while ((bMatch = bulletFileRegex.exec(markdown)) !== null) {
