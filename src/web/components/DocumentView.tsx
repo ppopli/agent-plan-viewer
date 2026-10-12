@@ -18,6 +18,7 @@ import {
   Database,
   Search,
 } from 'lucide-react';
+import { CodeSection } from './CodeSection.js';
 
 interface DocumentViewProps {
   planState: PlanState;
@@ -44,9 +45,11 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
       (t.notes && t.notes.toLowerCase().includes(taskFilter.toLowerCase()))
   );
 
-  const schemaSections = (planState.sections || []).filter((s) =>
-    /schema|database|data model|entity|table|models|migrations/i.test(s.heading)
-  );
+  const schemaSections = (planState.sections || []).filter((s) => {
+    const isFileChange = /^\[(NEW|MODIFY|DELETE)\]/i.test(s.heading.trim());
+    const matchesKeyword = /schema|database|data model|entity|table|models/i.test(s.heading);
+    return !isFileChange && matchesKeyword && s.content.trim().length > 0;
+  });
 
   // Helper to append automatic instruction notes to userInstructions
   const appendAutoInstruction = (note: string, baseState = planState): string => {
@@ -464,15 +467,12 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
 
           <div className="space-y-4">
             {schemaSections.map((sec, idx) => (
-              <div key={idx} className="bg-slate-950/70 border border-slate-800 rounded-xl p-4">
-                <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-amber-400" />
-                  {sec.heading}
-                </h3>
-                <pre className="bg-slate-900 border border-slate-800/80 rounded-lg p-3 font-mono text-xs text-amber-200/90 overflow-x-auto whitespace-pre-wrap leading-relaxed">
-                  {sec.content.trim()}
-                </pre>
-              </div>
+              <CodeSection
+                key={idx}
+                content={sec.content}
+                title={sec.heading}
+                defaultLang="sql"
+              />
             ))}
           </div>
         </div>
