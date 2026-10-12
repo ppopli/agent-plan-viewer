@@ -8,11 +8,13 @@ Furthermore:
 - There is no synchronous feedback loop where human edits are automatically ingested back into the agent's active planning loop.
 
 Agent Plan Viewer solves this by converting static agent plan markdowns into an interactive, visual web environment with:
-1. Two-way document editing (tasks, checklists, risk notes).
-2. Visual canvas diagram editing (React Flow) with bidirectional Mermaid translation.
-3. Two-Tier History Engine with depth 10 action undo/redo and depth 10 saved baseline checkpoints.
-4. Phase 2 Request Flow Stepper animating packet flows and system hops.
-5. Synchronous Agent Skill protocol halting agent execution until human approval.
+1. Two-way document editing (tasks, checklists, risk notes, inline task annotations).
+2. Clean HTML overview card without raw code or leaked Mermaid syntax.
+3. Visual canvas diagram editing (React Flow) with 4-way boundary handles, edge re-mapping, node/edge deletion, and bidirectional Mermaid translation.
+4. Two-Tier History Engine with depth 10 action undo/redo and depth 10 saved baseline checkpoints.
+5. Phase 2 Request Flow Stepper with Multi-Scenario Simulation (Happy Path, Dependency Failure & Rollback, Auth Rejection, Play All / Stop All playlist controls).
+6. Rich Markdown Reader for inspecting agent instructions before dispatch.
+7. Synchronous Agent Skill protocol halting agent execution until human approval.
 
 ---
 
@@ -62,48 +64,62 @@ Agent Plan Viewer solves this by converting static agent plan markdowns into an 
    - `participant A`, `actor B`
    - Messages: `A->>B: message`, `B-->>A: response`
 
-### React Flow Canvas
-- Custom node components provide styled representations for Microservices, Databases, Gateways, Queues, and Actors.
-- Canvas supports dragging, adding nodes via toolbar, drawing new edges between handles, and deleting nodes.
-- When explicitly saved or submitted, the React Flow graph is re-serialized into clean, idiomatic Mermaid syntax and inserted back into the Markdown document.
+### React Flow Canvas & Boundary Manipulation
+- **4-Way Boundary Handles**: Each node exposes handles on all 4 boundaries (Top, Right, Bottom, Left) acting as both source and target connection points, allowing natural connection from any side.
+- **Edge Reconnect & Remap**: Edges support `reconnectable={true}`, allowing developers to drag existing edge endpoints directly to different nodes or boundary handles.
+- **Node & Edge Deletion**:
+  - Every node displays a dedicated trash button on hover/selection.
+  - Selecting an edge reveals an inline "Delete Connection" toolbar button.
+  - Keyboard shortcuts `Backspace` and `Delete` are supported canvas-wide.
+- **Bidirectional Synchronization**: When explicitly saved or submitted, the visual canvas graph is re-serialized into clean, idiomatic Mermaid syntax and inserted back into the Markdown document.
 
 ---
 
-## 4. Phase 2: Request Flow Simulator
+## 4. Phase 2: Multi-Scenario Request Flow Stepper
 
 ### Concept
-System architecture and sequence diagrams represent execution sequences. The Request Flow Simulator parses the sequence of hops (or derives them from sequence messages / flow edges):
-- Each hop has: `stepNumber`, `sourceId`, `targetId`, `actionLabel`, `payload`, `status`.
-- Controller provides:
-  - `Play` / `Pause`
-  - `Next` / `Prev` / `Reset`
-  - Speed (`0.5x`, `1x`, `2x`)
-- Animation:
-  - An animated pulsing packet traverses the active edge.
-  - Active source and destination nodes illuminate with a glowing halo ring.
-  - An inspector panel presents step details, mock request payloads, and potential error/edge cases.
+System architecture and sequence diagrams represent execution sequences. The Request Flow Simulator supports **Multiple Scenarios** to visualize both success and failure modes:
+
+```
+[ Execution Scenarios ]
+├── 🟢 Happy Path: Standard Request Flow (all hops succeed 200 OK)
+├── 🔴 Failure: Downstream Timeout & Rollback (simulates DB/service timeout with circuit breaker)
+└── 🔴 Failure: Unauthorized / Invalid Token (simulates 401 rejection at Gateway)
+```
+
+### Key Capabilities
+- **Scenario Selector**: Allows developers to pick which scenario to inspect with distinct status badges.
+- **Components Touched Chips**: Dynamically displays the list of components involved in the chosen scenario.
+- **Playlist Controller**:
+  - `Play All Scenarios`: Sequentially executes Scenario 1, transitions to Scenario 2, and continues through all scenarios.
+  - `Pause All` & `Stop All`: Master playlist controls.
+  - Stepper Controls: `First`, `Prev`, `Play / Pause`, `Next`, `Reset` with speed settings (`0.5x`, `1x`, `2x`).
+- **Visual Animation**:
+  - Traveling pulse along the active edge (amber for success, red for failure).
+  - Active sender and receiver nodes illuminate with glowing halos.
+  - Failure steps highlight the failed component in a pulsing red alert ring.
+- **Step Inspector HUD**: Displays mock HTTP/JSON payloads, expected responses, and failure mode verifications.
 
 ---
 
-## 5. Agent Skill & CLI Review Protocol
+## 5. Document View & Auto-Populating Agent Feedback
 
-1. Agent creates/updates plan markdown.
-2. Agent executes: `npx agent-plan-viewer review <plan-path>`.
-3. CLI launches Express + WebSocket server on an available port (default 4100), opens the browser, and halts/awaits a resolution promise.
-4. User interacts with plan, edits tasks, adjusts diagrams, simulates request flows.
-5. User clicks **"Approve & Submit"** (or **"Request Changes"**).
-6. Server writes the approved markdown to disk, resolves the CLI promise, prints JSON output to `stdout`:
-   ```json
-   {
-     "status": "APPROVED",
-     "planPath": "/path/to/plan.md",
-     "diff": {
-       "tasksAdded": ["Implement Redis TTL"],
-       "tasksModified": [],
-       "diagramChanges": ["Added node 'Redis Cache' between 'Gateway' and 'DB'"]
-     },
-     "userInstructions": "Ensure cache TTL is 300s."
-   }
-   ```
-7. CLI exits with code 0.
-8. Agent receives stdout output, ingests changes, and proceeds autonomously!
+- **Clean Execution Target Card**: Clean HTML view displaying the plan title and overview with an "Edit Target" toggle button, preventing raw code blocks from cluttering the overview.
+- **Inline Task Annotations**: Sticky note button on each task item allows attaching specific notes directly to individual checklist steps.
+- **Real-Time Auto-Population**: Toggling task completion, editing titles, adding tasks, or writing task notes automatically appends timestamped entries to the **Agent Instructions & Direct Feedback** section in real-time.
+- **Freeform Instructions**: The developer can still write, format, and adjust overall guidelines in the feedback textarea.
+
+---
+
+## 6. Rich Markdown Reader & Agent Review Protocol
+
+- **Dual-View Preview**: Diff & Agent Prompt preview offers a toggle between **"Rendered View"** (rich GitHub-style HTML typography powered by `marked`) and **"Raw Terminal"** (monospace code block).
+- **Execution Protocol**:
+  1. Agent creates/updates plan markdown.
+  2. Agent executes: `npx agent-plan-viewer review <plan-path> --json`.
+  3. CLI launches server, opens browser, and halts/awaits a resolution promise.
+  4. User interacts with plan, edits tasks, adjusts diagrams, simulates request flows.
+  5. User clicks **"Approve & Submit"** (or **"Request Changes"**).
+  6. Server writes the approved markdown to disk, resolves the CLI promise, prints JSON output to `stdout`.
+  7. CLI exits with code 0.
+  8. Agent receives stdout output, ingests changes, and proceeds autonomously!
