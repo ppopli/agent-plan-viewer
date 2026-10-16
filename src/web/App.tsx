@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { PlanState, BaselineCheckpoint } from '../core/types.js';
 import { parsePlanMarkdown } from '../core/plan-parser.js';
 import { usePlanHistory } from './hooks/usePlanHistory.js';
@@ -8,7 +8,29 @@ import { DocumentView } from './components/DocumentView.js';
 import { DiagramCanvas } from './components/DiagramCanvas.js';
 import { FlowSimulator } from './components/FlowSimulator.js';
 import { DiffPreview } from './components/DiffPreview.js';
-import { CheckCircle2, AlertCircle, Loader2, Sparkles } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Loader2, RefreshCw, X } from 'lucide-react';
+
+function hydratePlanState(state: PlanState): PlanState {
+  if (state && state.rawMarkdown) {
+    const freshlyParsed = parsePlanMarkdown(state.rawMarkdown);
+    return {
+      ...freshlyParsed,
+      userInstructions: state.userInstructions || freshlyParsed.userInstructions,
+    };
+  }
+  return state;
+}
+
+function attemptAutoCloseWindow() {
+  setTimeout(() => {
+    try {
+      window.open('', '_self');
+      window.close();
+    } catch {
+      // Ignore if browser blocks script window.close()
+    }
+  }, 250);
+}
 
 export const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
@@ -30,15 +52,7 @@ export const App: React.FC = () => {
       })
       .then((data) => {
         setPlanPath(data.planPath);
-        let state: PlanState = data.state;
-        // Re-hydrate from rawMarkdown if connected to a pre-existing server instance
-        if (state && state.rawMarkdown) {
-          const freshlyParsed = parsePlanMarkdown(state.rawMarkdown);
-          state = {
-            ...freshlyParsed,
-            userInstructions: state.userInstructions || freshlyParsed.userInstructions,
-          };
-        }
+        const state = hydratePlanState(data.state);
         setInitialState(state);
         setInitialBaselines(data.baselines || []);
         setLoading(false);
@@ -78,6 +92,7 @@ export const App: React.FC = () => {
     <PlanViewerContent
       planPath={planPath}
       initialState={initialState}
+      onInitialStateChange={setInitialState}
       initialBaselines={initialBaselines}
       activeTab={activeTab}
       onTabChange={setActiveTab}
@@ -92,6 +107,7 @@ export const App: React.FC = () => {
 interface ContentProps {
   planPath: string;
   initialState: PlanState;
+  onInitialStateChange: (newState: PlanState) => void;
   initialBaselines: BaselineCheckpoint[];
   activeTab: ActiveTab;
   onTabChange: (tab: ActiveTab) => void;
@@ -104,6 +120,7 @@ interface ContentProps {
 const PlanViewerContent: React.FC<ContentProps> = ({
   planPath,
   initialState,
+  onInitialStateChange,
   initialBaselines,
   activeTab,
   onTabChange,
@@ -113,13 +130,53 @@ const PlanViewerContent: React.FC<ContentProps> = ({
   setSubmitStatus,
 }) => {
   const history = usePlanHistory(initialState, initialBaselines);
+  const [reloadBanner, setReloadBanner] = useState<string | null>(null);
+
+  const handleExternalReload = useCallback(
+    (rawState: PlanState, baselines?: BaselineCheckpoint[]) => {
+      const hydrated = hydratePlanState(rawState);
+      onInitialStateChange(hydrated);
+      history.syncExternalReload(hydrated, baselines);
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      setReloadBanner(`Document updated on disk — automatically reloaded latest version (${timeStr})`);
+    },
+    [history, onInitialStateChange]
+  );
+
+  // Connect to WebSocket for live file-change reloads and completion events
+  useEffect(() => {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    let ws: WebSocket | null = null;
+    try {
+      ws = new WebSocket(wsUrl);
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'PLAN_RELOADED' && msg.state) {
+            handleExternalReload(msg.state, msg.baselines);
+          } else if (msg.type === 'REVIEW_COMPLETED' && msg.status) {
+            setSubmitStatus(msg.status);
+            attemptAutoCloseWindow();
+          }
+        } catch {
+          // Ignore malformed ws messages
+        }
+      };
+    } catch {
+      // Ignore ws connection errors in restricted environments
+    }
+
+    return () => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      }
+    };
+  }, [handleExternalReload, setSubmitStatus]);
 
   // Explicit Save Draft action
   const handleSaveDraft = async () => {
-    const ok = await history.saveBaseline();
-    if (ok) {
-      // Optional subtle toast
-    }
+    await history.saveBaseline();
   };
 
   // Explicit Approve & Submit action
@@ -135,6 +192,7 @@ const PlanViewerContent: React.FC<ContentProps> = ({
       });
       if (res.ok) {
         setSubmitStatus('APPROVED');
+        attemptAutoCloseWindow();
       }
     } catch (err) {
       console.error(err);
@@ -154,13 +212,14 @@ const PlanViewerContent: React.FC<ContentProps> = ({
       });
       if (res.ok) {
         setSubmitStatus('CHANGES_REQUESTED');
+        attemptAutoCloseWindow();
       }
     } catch (err) {
       console.error(err);
     }
   };
 
-  // If submitted, show confirmation splash
+  // If submitted, show confirmation splash (while browser tab closes automatically)
   if (submitStatus) {
     return (
       <div className="h-screen w-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-center text-slate-100 animate-in fade-in duration-300">
@@ -170,12 +229,21 @@ const PlanViewerContent: React.FC<ContentProps> = ({
         <h1 className="text-2xl font-bold text-white mb-2">
           {submitStatus === 'APPROVED' ? 'Plan Approved & Dispatched!' : 'Revision Requests Sent!'}
         </h1>
-        <p className="text-sm text-slate-400 max-w-md mb-6">
-          Your changes and feedback have been formatted and sent directly back to the running agent process. You can return to your terminal to watch the execution.
+        <p className="text-sm text-slate-400 max-w-md mb-4">
+          Your changes and feedback have been formatted and sent directly back to the running agent process. Closing viewer tab automatically...
         </p>
-        <div className="p-3 bg-slate-900 border border-slate-800 rounded-xl text-xs font-mono text-slate-400">
+        <div className="p-3 bg-slate-900 border border-slate-800 rounded-xl text-xs font-mono text-slate-400 mb-4">
           File updated: {planPath}
         </div>
+        <button
+          onClick={() => {
+            window.open('', '_self');
+            window.close();
+          }}
+          className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 border border-slate-700 transition"
+        >
+          Close Tab Now
+        </button>
       </div>
     );
   }
@@ -202,6 +270,25 @@ const PlanViewerContent: React.FC<ContentProps> = ({
         onApprove={handleApprove}
         onRequestChanges={handleRequestChanges}
       />
+
+      {/* Live File-Reload Notification Banner */}
+      {reloadBanner && (
+        <div className="bg-emerald-950/90 border-b border-emerald-500/40 px-4 py-2 flex items-center justify-between text-xs text-emerald-200 animate-in fade-in duration-200">
+          <div className="flex items-center gap-2 max-w-5xl mx-auto w-full justify-between">
+            <div className="flex items-center gap-2">
+              <RefreshCw className="w-3.5 h-3.5 text-emerald-400 animate-spin" style={{ animationDuration: '3s' }} />
+              <span className="font-medium">{reloadBanner}</span>
+            </div>
+            <button
+              onClick={() => setReloadBanner(null)}
+              className="p-1 rounded hover:bg-emerald-900/60 text-emerald-300 hover:text-white transition"
+              title="Dismiss notification"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Main View Body */}
       <main className="flex-1 overflow-y-auto">

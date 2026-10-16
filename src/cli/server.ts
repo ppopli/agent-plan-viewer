@@ -3,6 +3,8 @@ import { createServer, Server as HttpServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import path from 'path';
 import fs from 'fs';
+import { execFile } from 'child_process';
+import open from 'open';
 import { fileURLToPath } from 'url';
 import { PlanState, BaselineCheckpoint, ReviewResult, PlanDiff } from '../core/types.js';
 import { parsePlanMarkdown } from '../core/plan-parser.js';
@@ -15,6 +17,7 @@ export interface ServerOptions {
   planPath: string;
   port?: number;
   initialContent?: string;
+  autoOpen?: boolean;
   onResolve?: (result: ReviewResult) => void;
 }
 
@@ -24,14 +27,20 @@ export class PlanViewerServer {
   public wss: WebSocketServer;
   public port: number;
   public planPath: string;
+  public autoOpen: boolean;
   public initialPlanState: PlanState;
   public currentPlanState: PlanState;
   public baselines: BaselineCheckpoint[] = [];
   private onResolve?: (result: ReviewResult) => void;
+  private fileWatcher?: fs.FSWatcher;
+  private watchDebounceTimer?: NodeJS.Timeout;
+  private lastInternalWriteTime = 0;
+  private lastInternalWriteContent = '';
 
   constructor(options: ServerOptions) {
     this.planPath = path.resolve(options.planPath);
     this.port = options.port !== undefined ? options.port : 4100;
+    this.autoOpen = Boolean(options.autoOpen);
     this.onResolve = options.onResolve;
 
     // Load initial content
@@ -42,6 +51,7 @@ export class PlanViewerServer {
       rawMarkdown = '# Implementation Plan\n\nNo plan content provided yet.';
     }
 
+    this.lastInternalWriteContent = rawMarkdown;
     this.initialPlanState = parsePlanMarkdown(rawMarkdown);
     this.currentPlanState = JSON.parse(JSON.stringify(this.initialPlanState));
 
@@ -60,6 +70,133 @@ export class PlanViewerServer {
     this.setupMiddleware();
     this.setupRoutes();
     this.setupWebSocket();
+    this.setupFileWatcher();
+  }
+
+  private writePlanToDisk(serialized: string) {
+    this.lastInternalWriteTime = Date.now();
+    this.lastInternalWriteContent = serialized;
+    fs.writeFileSync(this.planPath, serialized, 'utf-8');
+  }
+
+  private setupFileWatcher() {
+    if (!fs.existsSync(this.planPath)) return;
+
+    const handleFileChange = () => {
+      if (this.watchDebounceTimer) {
+        clearTimeout(this.watchDebounceTimer);
+      }
+      this.watchDebounceTimer = setTimeout(() => {
+        try {
+          if (!fs.existsSync(this.planPath)) return;
+          // Ignore writes triggered internally within the last 500ms
+          if (Date.now() - this.lastInternalWriteTime < 500) return;
+
+          const updatedRaw = fs.readFileSync(this.planPath, 'utf-8');
+          if (!updatedRaw.trim()) return;
+          if (updatedRaw === this.lastInternalWriteContent) return;
+
+          this.lastInternalWriteContent = updatedRaw;
+          const freshlyParsed = parsePlanMarkdown(updatedRaw);
+          this.initialPlanState = freshlyParsed;
+          this.currentPlanState = JSON.parse(JSON.stringify(freshlyParsed));
+
+          const reloadBaseline: BaselineCheckpoint = {
+            id: `baseline-${Date.now()}`,
+            timestamp: Date.now(),
+            label: `File Reload #${this.baselines.length}`,
+            snapshot: JSON.parse(JSON.stringify(this.currentPlanState)),
+          };
+          this.baselines.push(reloadBaseline);
+          if (this.baselines.length > 10) {
+            this.baselines.shift();
+          }
+
+          this.broadcast({
+            type: 'PLAN_RELOADED',
+            state: this.currentPlanState,
+            baselines: this.baselines,
+            timestamp: Date.now(),
+          });
+
+          // If no browser tabs are currently open and autoOpen is enabled, re-open the browser
+          if (this.autoOpen && this.getOpenClientCount() === 0 && this.port > 0) {
+            open(`http://localhost:${this.port}`).catch(() => {});
+          }
+        } catch {
+          // Ignore transient read errors during atomic file replacement
+        }
+      }, 150);
+    };
+
+    try {
+      this.fileWatcher = fs.watch(this.planPath, (eventType) => {
+        if (eventType === 'change' || eventType === 'rename') {
+          handleFileChange();
+        }
+      });
+    } catch {
+      // Fallback if fs.watch fails
+    }
+  }
+
+  private getOpenClientCount(): number {
+    let count = 0;
+    this.wss.clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        count++;
+      }
+    });
+    return count;
+  }
+
+  private closeBrowserTab() {
+    if (!this.autoOpen || process.platform !== 'darwin' || !this.port) return;
+    const urlPrefix1 = `http://localhost:${this.port}`;
+    const urlPrefix2 = `http://127.0.0.1:${this.port}`;
+    const script = `
+tell application "System Events"
+  set runningApps to name of every process
+end tell
+repeat with browserName in {"Google Chrome", "Brave Browser", "Arc"}
+  if runningApps contains (browserName as text) then
+    try
+      tell application (browserName as text)
+        repeat with w in windows
+          set tabList to tabs of w
+          repeat with t in tabList
+            set tabUrl to URL of t
+            if (tabUrl starts with "${urlPrefix1}") or (tabUrl starts with "${urlPrefix2}") then
+              close t
+            end if
+          end repeat
+        end repeat
+      end tell
+    end try
+  end if
+end repeat
+if runningApps contains "Safari" then
+  try
+    tell application "Safari"
+      repeat with w in windows
+        set tabList to tabs of w
+        repeat with t in tabList
+          set tabUrl to URL of t
+          if (tabUrl starts with "${urlPrefix1}") or (tabUrl starts with "${urlPrefix2}") then
+            close t
+          end if
+        end repeat
+      end repeat
+    end tell
+  end try
+end if
+`;
+    try {
+      const child = execFile('osascript', ['-e', script], { timeout: 1500 }, () => {});
+      child.unref();
+    } catch {
+      // Ignore osascript errors
+    }
   }
 
   private setupMiddleware() {
@@ -107,7 +244,7 @@ export class PlanViewerServer {
         const serialized = serializePlanMarkdown(planState);
 
         // Write to disk
-        fs.writeFileSync(this.planPath, serialized, 'utf-8');
+        this.writePlanToDisk(serialized);
 
         // Create baseline checkpoint
         const baselineId = `baseline-${Date.now()}`;
@@ -156,7 +293,7 @@ export class PlanViewerServer {
         }
 
         const serialized = serializePlanMarkdown(finalState);
-        fs.writeFileSync(this.planPath, serialized, 'utf-8');
+        this.writePlanToDisk(serialized);
 
         const diff = calculatePlanDiff(this.initialPlanState, finalState);
         const result: ReviewResult = {
@@ -169,14 +306,15 @@ export class PlanViewerServer {
 
         res.json({ success: true, result });
 
-        this.broadcast({ type: 'REVIEW_COMPLETED', status: 'APPROVED' });
+        this.broadcast({ type: 'REVIEW_COMPLETED', status: 'APPROVED', autoClose: true });
+        this.closeBrowserTab();
 
         if (this.onResolve) {
           this.onResolve(result);
         }
 
         // Graceful shutdown after response
-        setTimeout(() => this.stop(), 500);
+        setTimeout(() => this.stop(), 400);
       } catch (err: any) {
         res.status(500).json({ error: err.message });
       }
@@ -192,8 +330,7 @@ export class PlanViewerServer {
         }
 
         const serialized = serializePlanMarkdown(finalState);
-        // Do not necessarily overwrite disk with unapproved plan unless desired, but write instructions
-        fs.writeFileSync(this.planPath, serialized, 'utf-8');
+        this.writePlanToDisk(serialized);
 
         const diff = calculatePlanDiff(this.initialPlanState, finalState);
         const result: ReviewResult = {
@@ -201,18 +338,19 @@ export class PlanViewerServer {
           planPath: this.planPath,
           diff,
           userInstructions: finalState.userInstructions,
-        updatedMarkdown: serialized,
+          updatedMarkdown: serialized,
         };
 
         res.json({ success: true, result });
 
-        this.broadcast({ type: 'REVIEW_COMPLETED', status: 'CHANGES_REQUESTED' });
+        this.broadcast({ type: 'REVIEW_COMPLETED', status: 'CHANGES_REQUESTED', autoClose: true });
+        this.closeBrowserTab();
 
         if (this.onResolve) {
           this.onResolve(result);
         }
 
-        setTimeout(() => this.stop(), 500);
+        setTimeout(() => this.stop(), 400);
       } catch (err: any) {
         res.status(500).json({ error: err.message });
       }
@@ -273,6 +411,16 @@ export class PlanViewerServer {
   }
 
   public stop(): Promise<void> {
+    if (this.watchDebounceTimer) {
+      clearTimeout(this.watchDebounceTimer);
+    }
+    if (this.fileWatcher) {
+      try {
+        this.fileWatcher.close();
+      } catch {
+        // Ignore close errors
+      }
+    }
     return new Promise((resolve) => {
       this.wss.close();
       this.httpServer.close(() => resolve());

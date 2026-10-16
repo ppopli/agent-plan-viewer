@@ -126,6 +126,37 @@ export function calculatePlanDiff(original: PlanState, updated: PlanState): Plan
     goalChanges.push(`Architectural Scope updated`);
   }
 
+  // Track general markdown section & inline line edits
+  const origSections = (original.sections || []).filter(
+    s => !/user feedback & review notes/i.test(s.heading)
+  );
+  const updSections = (updated.sections || []).filter(
+    s => !/user feedback & review notes/i.test(s.heading)
+  );
+  const origSecMap = new Map(origSections.map(s => [s.heading, s.content.trim()]));
+  const updSecMap = new Map(updSections.map(s => [s.heading, s.content.trim()]));
+
+  for (const [heading, content] of updSecMap.entries()) {
+    if (!origSecMap.has(heading)) {
+      goalChanges.push(`Added section "${heading}"`);
+    } else {
+      const origContent = origSecMap.get(heading)!;
+      const stripMermaid = (txt: string) => txt.replace(/```mermaid[\s\S]*?```/gi, '').trim();
+      if (stripMermaid(origContent) !== stripMermaid(content)) {
+        const msg = `Modified section "${heading}"`;
+        if (!goalChanges.includes(msg)) {
+          goalChanges.push(msg);
+        }
+      }
+    }
+  }
+
+  for (const [heading] of origSecMap.entries()) {
+    if (!updSecMap.has(heading)) {
+      goalChanges.push(`Removed section "${heading}"`);
+    }
+  }
+
   return {
     tasksAdded,
     tasksRemoved,

@@ -39,6 +39,7 @@ program
     const server = new PlanViewerServer({
       planPath,
       port,
+      autoOpen: options.open,
       onResolve: (result) => {
         resolveSession(result);
       },
@@ -88,15 +89,20 @@ program
 
 program
   .command('serve')
-  .description('Start viewer server in inspection mode without blocking')
-  .argument('<plan-path>', 'Path to plan markdown file')
+  .description('Start viewer server in live-reload inspection mode without blocking')
+  .argument('<plan-path>', 'Path to plan or markdown file')
   .option('-p, --port <number>', 'Port for server', '4100')
-  .action(async (planPathArg: string, options: { port: string }) => {
+  .option('--no-open', 'Do not automatically open browser')
+  .action(async (planPathArg: string, options: { port: string; open: boolean }) => {
     const planPath = path.resolve(process.cwd(), planPathArg);
     const port = parseInt(options.port, 10) || 4100;
-    const server = new PlanViewerServer({ planPath, port });
+    const server = new PlanViewerServer({ planPath, port, autoOpen: options.open });
     const actualPort = await server.start();
-    console.log(chalk.green(`Agent Plan Viewer running at http://localhost:${actualPort}`));
+    const url = `http://localhost:${actualPort}`;
+    console.log(chalk.green(`Agent Plan Viewer running at ${url} (watching ${planPath} for changes)`));
+    if (options.open) {
+      open(url).catch(() => {});
+    }
   });
 
 program

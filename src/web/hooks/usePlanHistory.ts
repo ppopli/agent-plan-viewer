@@ -22,6 +22,7 @@ export interface UsePlanHistoryReturn {
   saveBaseline: (label?: string) => Promise<boolean>;
   revertToBaseline: (baselineId: string) => void;
   discardToActiveBaseline: () => void;
+  syncExternalReload: (newState: PlanState, newBaselines?: BaselineCheckpoint[]) => void;
 
   // Status
   isSaving: boolean;
@@ -173,6 +174,25 @@ export function usePlanHistory(initialState: PlanState, initialBaselines: Baseli
     setFuture([]);
   }, [activeBaseline]);
 
+  // External reload when plan file changes on disk
+  const syncExternalReload = useCallback((newState: PlanState, newBaselines?: BaselineCheckpoint[]) => {
+    const current = presentRef.current;
+    setPast((prevPast) => {
+      const nextPast = [...prevPast, current];
+      return nextPast.length > MAX_HISTORY_DEPTH
+        ? nextPast.slice(nextPast.length - MAX_HISTORY_DEPTH)
+        : nextPast;
+    });
+    presentRef.current = newState;
+    setPresent(newState);
+    setFuture([]);
+
+    if (newBaselines && newBaselines.length > 0) {
+      setBaselines(newBaselines.slice(-MAX_BASELINES_DEPTH));
+      setActiveBaselineId(newBaselines[newBaselines.length - 1].id);
+    }
+  }, []);
+
   // Keyboard shortcuts: ⌘Z (Undo), ⌘⇧Z / Ctrl+Y (Redo)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -215,6 +235,7 @@ export function usePlanHistory(initialState: PlanState, initialBaselines: Baseli
     saveBaseline,
     revertToBaseline,
     discardToActiveBaseline,
+    syncExternalReload,
     isSaving,
     saveError,
   };
