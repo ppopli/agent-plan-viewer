@@ -4,6 +4,7 @@ import {
   serializeToMermaid,
   computeDiagramDiff,
   inferNodeType,
+  rebuildDiagramFlows,
 } from '../../src/core/mermaid-graph-bridge.js';
 import { ParsedDiagram } from '../../src/core/types.js';
 
@@ -105,4 +106,28 @@ describe('mermaid-graph-bridge', () => {
     expect(diffs).toContain("Connected 'Redis Cache' -> 'DB'");
     expect(diffs).toContain("Disconnected 'Gateway' -> 'DB'");
   });
+
+  it('should return empty flowSteps and scenarios for static diagrams with 0 edges, and rebuild when connected', () => {
+    const staticMermaid = `flowchart TD
+    Client{{Client App}}
+    APIGateway(API Gateway)
+    PostgresDB[(PostgreSQL Database)]`;
+
+    const parsed = parseMermaid(staticMermaid, 'diag-static');
+    expect(parsed.nodes.length).toBe(3);
+    expect(parsed.edges.length).toBe(0);
+    expect(parsed.flowSteps.length).toBe(0);
+    expect(parsed.scenarios?.length).toBe(0);
+
+    // Add a connection and rebuild flows
+    const connected = rebuildDiagramFlows({
+      ...parsed,
+      edges: [
+        { id: 'e1', source: 'Client', target: 'APIGateway', label: 'HTTPS', style: 'solid' },
+      ],
+    });
+    expect(connected.flowSteps.length).toBe(1);
+    expect(connected.scenarios && connected.scenarios.length).toBeGreaterThan(0);
+  });
 });
+

@@ -8,6 +8,34 @@ description: Launches an interactive visual plan viewer and editor for the user 
 Whenever you formulate or update an implementation plan, **DO NOT merely present raw markdown on the terminal or ask for approval via text.**
 Instead, launch the interactive visual environment using `agent-plan-viewer` so the developer can inspect, edit tasks, drag/modify diagrams, and simulate request flows.
 
+## Prerequisites
+
+Before executing this skill, ensure the following requirements are met:
+
+1. **Runtime & CLI Environment**:
+   - **Node.js**: `v18.0.0` or higher (`node -v`).
+   - **npm / npx**: Available in system `PATH` (`npx -v`).
+
+2. **Package Setup & Availability**:
+   - **Option A (Published / Global via npx)**:
+     - Ready to run directly with `npx agent-plan-viewer review <plan-path> --json`.
+   - **Option B (Local Repository / Workspace clone)**:
+     - Dependencies must be installed and built:
+       ```bash
+       npm install
+       npm run build    # Compiles dist-web/ (Vite frontend) and dist/ (CLI)
+       ```
+     - Then invoke using `./bin/cli.js review <plan-path> --json` or `node <repo-path>/bin/cli.js review <plan-path> --json`.
+     - Alternatively, run `npm link` inside the project to expose `agent-plan-viewer` globally.
+
+3. **Port & Display Access**:
+   - **Default Port**: Port `4100` must be accessible. If occupied, specify an alternate port with `-p <port>` (e.g. `-p 4200`).
+   - **Browser / Remote Environments**: A modern browser (Chrome, Safari, Edge, Firefox) is launched automatically. In headless environments (Docker, SSH, Cloud VMs, CI), supply the `--no-open` flag to prevent browser launch errors and display the connection URL to the user.
+
+4. **Plan File Requirements**:
+   - The target plan file must exist on disk as a readable and writable UTF-8 Markdown file (`.md`).
+   - Standard structure is recommended: `# <Title>`, `## Goal Description`, checklist tasks (`- [ ] ...`), and optional Mermaid diagrams (````mermaid ... ````).
+
 ## Instructions for Agents
 
 ### Step 1: Write Your Plan to Disk
@@ -63,3 +91,7 @@ When the command exits with code `0`, it outputs a structured JSON result to `st
 - **If `status === "CHANGES_REQUESTED"`**:
   1. Inspect `userInstructions` and `diff`.
   2. Revise your plan accordingly and re-run `agent-plan-viewer review <plan-path>`.
+
+---
+
+> 📖 **Installation & Configuration Reference**: For detailed setup guides across Google Antigravity, Claude Code, Cursor, Codex, and custom frameworks, see [`skills/agent-plan-viewer/README.md`](./README.md).

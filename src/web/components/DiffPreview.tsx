@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { PlanState } from '../../core/types.js';
 import { calculatePlanDiff, formatAgentInstructions } from '../../core/plan-serializer.js';
-import { GitCompare, Terminal, Eye, Code, Plus, Minus, RefreshCw } from 'lucide-react';
+import { GitCompare, Terminal, Eye, Code, Plus, Minus, RefreshCw, Sparkles } from 'lucide-react';
 import { marked } from 'marked';
 
 interface DiffPreviewProps {
@@ -41,6 +41,23 @@ export const DiffPreview: React.FC<DiffPreviewProps> = ({
         <p className="text-xs text-slate-400 mb-6">
           Comparing working draft against Initial Agent Baseline:
         </p>
+
+        {/* Goal Changes (if any) */}
+        {diff.goalChanges && diff.goalChanges.length > 0 && (
+          <div className="bg-emerald-950/20 border border-emerald-500/30 rounded-xl p-4 mb-4">
+            <h3 className="text-xs font-semibold text-emerald-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5" /> Execution Target & Scope Changes
+            </h3>
+            <div className="space-y-1.5 text-xs text-emerald-300">
+              {diff.goalChanges.map((g, i) => (
+                <div key={i} className="flex items-start gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mt-1.5 shrink-0" />
+                  <span>{g}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Diff Badges / Lists */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

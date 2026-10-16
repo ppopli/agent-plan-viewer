@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { parsePlanMarkdown } from '../../src/core/plan-parser.js';
+import { serializePlanMarkdown, calculatePlanDiff } from '../../src/core/plan-serializer.js';
+import { parseMermaid } from '../../src/core/mermaid-graph-bridge.js';
 
 describe('plan-parser', () => {
   const sampleMarkdown = `# Implementation Plan: Test Project
@@ -57,4 +59,39 @@ flowchart TD
     expect(diag.nodes.length).toBe(2);
     expect(diag.nodes.find(n => n.id === 'B')?.type).toBe('database');
   });
+
+  it('should handle text-only plans with zero diagrams and serialize newly initialized diagrams', () => {
+    const textOnlyMarkdown = `# Implementation Plan: Database Migration
+
+Migrate PostgreSQL schema to support multi-tenant workspaces.
+
+## Tasks
+- [ ] Create tenants table
+- [ ] Backfill tenant_id foreign keys
+`;
+
+    const initialPlan = parsePlanMarkdown(textOnlyMarkdown);
+    expect(initialPlan.diagrams.length).toBe(0);
+    expect(initialPlan.tasks.length).toBe(2);
+
+    const newDiag = parseMermaid(
+      `flowchart TD\n    App[App Server] -->|SQL| DB[(PostgreSQL)]`,
+      'diagram-0'
+    );
+    const updatedPlan = {
+      ...initialPlan,
+      diagrams: [newDiag],
+    };
+
+    const serialized = serializePlanMarkdown(updatedPlan);
+    expect(serialized).toContain('## System Architecture');
+    expect(serialized).toContain('```mermaid');
+    expect(serialized).toContain('flowchart TD');
+
+    const diff = calculatePlanDiff(initialPlan, updatedPlan);
+    expect(diff.diagramChanges.length).toBeGreaterThanOrEqual(2);
+    expect(diff.diagramChanges.join(' ')).toContain('App Server');
+    expect(diff.diagramChanges.join(' ')).toContain('PostgreSQL');
+  });
 });
+

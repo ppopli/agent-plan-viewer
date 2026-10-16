@@ -44,8 +44,9 @@ export const BaselinesDrawer: React.FC<BaselinesDrawerProps> = ({
         </div>
 
         {/* List of Baselines */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {baselines.slice().reverse().map((baseline, idx) => {
+        <div className="flex-1 overflow-y-auto p-4 space-y-3" data-testid="baselines-list">
+          {baselines.slice().reverse().map((baseline, revIdx) => {
+            const versionNum = baselines.length - 1 - revIdx;
             const isActive = baseline.id === activeBaselineId;
             const dateStr = new Date(baseline.timestamp).toLocaleTimeString([], {
               hour: '2-digit',
@@ -53,12 +54,20 @@ export const BaselinesDrawer: React.FC<BaselinesDrawerProps> = ({
               second: '2-digit',
             });
             const taskCount = baseline.snapshot.tasks.length;
+            const completedCount = baseline.snapshot.tasks.filter((t) => t.completed).length;
             const diagramCount = baseline.snapshot.diagrams.length;
+            const nodeCount = baseline.snapshot.diagrams.reduce((acc, d) => acc + d.nodes.length, 0);
+            const instructionLines = (baseline.snapshot.userInstructions || '')
+              .split('\n')
+              .map((l) => l.trim())
+              .filter(Boolean);
+            const lastInstruction = instructionLines.length > 0 ? instructionLines[instructionLines.length - 1] : null;
 
             return (
               <div
                 key={baseline.id}
-                className={`p-3 rounded-xl border transition ${
+                data-testid={`baseline-card-v${versionNum}`}
+                className={`p-3.5 rounded-xl border transition ${
                   isActive
                     ? 'bg-indigo-950/30 border-indigo-500/40 shadow-sm'
                     : 'bg-slate-800/60 border-slate-700/60 hover:border-slate-600'
@@ -66,6 +75,9 @@ export const BaselinesDrawer: React.FC<BaselinesDrawerProps> = ({
               >
                 <div className="flex items-start justify-between gap-2 mb-1.5">
                   <div className="flex items-center gap-2">
+                    <span className="px-1.5 py-0.5 rounded bg-slate-950 border border-slate-700 text-[10px] font-mono font-bold text-indigo-300">
+                      v{versionNum}
+                    </span>
                     <span className="font-semibold text-xs text-white">
                       {baseline.label}
                     </span>
@@ -82,14 +94,22 @@ export const BaselinesDrawer: React.FC<BaselinesDrawerProps> = ({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3 text-xs text-slate-400 mb-3">
+                <div className="flex items-center gap-3 text-xs text-slate-400 mb-2">
                   <span className="flex items-center gap-1">
-                    <Layers className="w-3 h-3" />
-                    {taskCount} tasks
+                    <Layers className="w-3 h-3 text-emerald-400" />
+                    {completedCount}/{taskCount} tasks done
                   </span>
                   <span>•</span>
-                  <span>{diagramCount} diagrams</span>
+                  <span>
+                    {diagramCount} {diagramCount === 1 ? 'diagram' : 'diagrams'} ({nodeCount} nodes)
+                  </span>
                 </div>
+
+                {lastInstruction && (
+                  <div className="mb-2.5 px-2.5 py-1.5 rounded-lg bg-slate-950/70 border border-slate-800 text-[11px] text-slate-300 font-mono truncate" title={lastInstruction}>
+                    {lastInstruction}
+                  </div>
+                )}
 
                 <div className="flex items-center justify-end">
                   {isActive ? (
@@ -100,7 +120,7 @@ export const BaselinesDrawer: React.FC<BaselinesDrawerProps> = ({
                         onRevertToBaseline(baseline.id);
                         onClose();
                       }}
-                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-700 hover:bg-indigo-600 text-slate-200 hover:text-white transition shadow-sm"
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-700 hover:bg-indigo-600 text-slate-200 hover:text-white transition shadow-sm cursor-pointer"
                     >
                       <RotateCcw className="w-3 h-3" />
                       <span>Revert to this Version</span>

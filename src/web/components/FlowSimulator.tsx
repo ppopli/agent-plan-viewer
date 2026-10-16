@@ -98,9 +98,16 @@ export const FlowSimulator: React.FC<FlowSimulatorProps> = ({
   const diagram: ParsedDiagram | undefined = planState.diagrams[selectedDiagIdx];
 
   const scenarios: FlowScenario[] = useMemo(() => {
-    if (!diagram) return [];
-    if (diagram.scenarios && diagram.scenarios.length > 0) {
+    if (!diagram || diagram.edges.length === 0) return [];
+    if (
+      diagram.scenarios &&
+      diagram.scenarios.length > 0 &&
+      diagram.scenarios.some((s) => s.steps && s.steps.length > 0)
+    ) {
       return diagram.scenarios;
+    }
+    if (!diagram.flowSteps || diagram.flowSteps.length === 0) {
+      return [];
     }
     // Fallback if none exist
     return [
@@ -247,14 +254,25 @@ export const FlowSimulator: React.FC<FlowSimulatorProps> = ({
     setCurrentStepIdx(0);
   };
 
-  if (!diagram || scenarios.length === 0) {
+  if (!diagram || scenarios.length === 0 || steps.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-[calc(100vh-64px)] text-slate-400">
-        <Activity className="w-12 h-12 mb-3 text-slate-600" />
-        <h3 className="text-base font-semibold text-slate-300">No Request Flow Available</h3>
-        <p className="text-xs text-slate-500 mt-1">
-          Add connections in the Diagram Canvas to simulate step-by-step request execution.
-        </p>
+      <div className="flex flex-col items-center justify-center h-[calc(100vh-64px)] text-slate-400 p-6">
+        <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center shadow-2xl">
+          <div className="w-14 h-14 rounded-2xl bg-slate-800/80 border border-slate-700 flex items-center justify-center mx-auto mb-4 text-slate-400">
+            <Activity className="w-7 h-7" />
+          </div>
+          <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 mb-2">
+            {!diagram
+              ? 'No Architecture / Sequence Diagram'
+              : `Static Component Diagram (${diagram.nodes.length} Components, 0 Connections)`}
+          </span>
+          <h3 className="text-lg font-bold text-white">No Request Flow Available</h3>
+          <p className="text-xs text-slate-400 mt-2 leading-relaxed">
+            {!diagram
+              ? 'This plan does not contain any Mermaid diagrams. You can review and edit tasks in Plan & Tasks, or switch to Diagram Canvas to initialize an interactive architecture diagram.'
+              : `This diagram contains ${diagram.nodes.length} component(s) without directional connections (-->). Connect components in the Diagram Canvas to simulate step-by-step request flows.`}
+          </p>
+        </div>
       </div>
     );
   }

@@ -49,7 +49,7 @@ describe('End-to-End Review Flow & Explicit Save / Submit Lifecycle', () => {
     expect(planRes.ok).toBe(true);
     const planData = await planRes.json();
     expect(planData.state.goal.title).toContain('E-Commerce Order Processing Architecture');
-    expect(planData.state.tasks.length).toBe(5);
+    expect(planData.state.tasks.length).toBe(8);
     expect(planData.state.diagrams.length).toBe(1);
     expect(planData.baselines.length).toBe(1);
     expect(planData.baselines[0].label).toBe('Initial Agent Plan');
@@ -57,8 +57,10 @@ describe('End-to-End Review Flow & Explicit Save / Submit Lifecycle', () => {
     // 2. Verify file on disk is unchanged after loading
     expect(fs.readFileSync(testPlanPath, 'utf-8')).toBe(originalFileContent);
 
-    // 3. User modifies tasks in draft (client-side)
+    // 3. User modifies tasks & goal in draft (client-side)
     const workingDraft = JSON.parse(JSON.stringify(planData.state));
+    workingDraft.goal.title = 'Updated Resilient E-Commerce Architecture';
+    workingDraft.goal.description = 'Scalable microservices checkout with Redis distributed locking';
     workingDraft.tasks.push({
       id: 'task-e2e-1',
       title: 'Add Redis Distributed Cache Lock',
@@ -75,20 +77,22 @@ describe('End-to-End Review Flow & Explicit Save / Submit Lifecycle', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         planState: workingDraft,
-        label: 'Draft #1: Added Redis Lock',
+        label: 'Draft #1: Added Redis Lock & Updated Target',
       }),
     });
     expect(saveRes1.ok).toBe(true);
 
-    // Now disk MUST be updated
+    // Now disk MUST be updated with new tasks and new goal title/scope
     const savedDisk1 = fs.readFileSync(testPlanPath, 'utf-8');
     expect(savedDisk1).toContain('Add Redis Distributed Cache Lock');
+    expect(savedDisk1).toContain('# Updated Resilient E-Commerce Architecture');
+    expect(savedDisk1).toContain('Scalable microservices checkout with Redis distributed locking');
 
     // Baselines count should now be 2
     const baselinesRes1 = await fetch(`http://localhost:${serverPort}/api/baselines`);
     const baselinesData1 = await baselinesRes1.json();
     expect(baselinesData1.baselines.length).toBe(2);
-    expect(baselinesData1.baselines[1].label).toBe('Draft #1: Added Redis Lock');
+    expect(baselinesData1.baselines[1].label).toBe('Draft #1: Added Redis Lock & Updated Target');
 
     // 5. Test Baseline Capping at 10
     for (let i = 2; i <= 15; i++) {
@@ -141,6 +145,8 @@ describe('End-to-End Review Flow & Explicit Save / Submit Lifecycle', () => {
     expect(approveData.result.userInstructions).toBe('Ensure connection pooling is tuned for 1000 RPS');
     expect(approveData.result.diff.tasksAdded).toContain('Add Redis Distributed Cache Lock');
     expect(approveData.result.diff.diagramChanges.some((d: string) => d.includes('Redis Cache Lock'))).toBe(true);
+    expect(approveData.result.diff.goalChanges).toBeDefined();
+    expect(approveData.result.diff.goalChanges.some((g: string) => g.includes('Updated Resilient E-Commerce Architecture'))).toBe(true);
 
     // Verify resolved result callback
     expect(resolvedResult).not.toBeNull();
@@ -148,6 +154,7 @@ describe('End-to-End Review Flow & Explicit Save / Submit Lifecycle', () => {
 
     // Final disk verification
     const finalDiskContent = fs.readFileSync(testPlanPath, 'utf-8');
+    expect(finalDiskContent).toContain('# Updated Resilient E-Commerce Architecture');
     expect(finalDiskContent).toContain('RedisLock');
     expect(finalDiskContent).toContain('Ensure connection pooling is tuned for 1000 RPS');
   });

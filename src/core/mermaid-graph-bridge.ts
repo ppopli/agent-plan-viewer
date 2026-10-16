@@ -17,7 +17,11 @@ export function inferNodeType(id: string, label: string, shape?: string): NodeTy
   return 'service';
 }
 
-function buildDefaultScenarios(nodes: DiagramNode[], edges: DiagramEdge[], steps: FlowStep[]): FlowScenario[] {
+export function buildDefaultScenarios(nodes: DiagramNode[], edges: DiagramEdge[], steps: FlowStep[]): FlowScenario[] {
+  if (steps.length === 0) {
+    return [];
+  }
+
   const touchedAll = Array.from(new Set(steps.flatMap(s => [s.source, s.target])));
 
   const successScenario: FlowScenario = {
@@ -31,7 +35,7 @@ function buildDefaultScenarios(nodes: DiagramNode[], edges: DiagramEdge[], steps
 
   // Failure Scenario 1: Downstream Service/DB Failure
   const failSteps: FlowStep[] = [];
-  const midPoint = Math.max(1, Math.floor(steps.length / 2));
+  const midPoint = Math.floor(steps.length / 2);
   for (let i = 0; i < steps.length; i++) {
     if (i < midPoint) {
       failSteps.push({ ...steps[i], status: 'success' });
@@ -531,4 +535,23 @@ export function computeDiagramDiff(before: ParsedDiagram, after: ParsedDiagram):
   }
 
   return diffs;
+}
+
+export function rebuildDiagramFlows(diagram: ParsedDiagram): ParsedDiagram {
+  const nodeMap = new Map(diagram.nodes.map(n => [n.id, n]));
+  const flowSteps: FlowStep[] = diagram.edges.map((e, idx) => ({
+    stepNumber: idx + 1,
+    source: e.source,
+    target: e.target,
+    label: e.label || `Call ${nodeMap.get(e.target)?.label || e.target}`,
+    payload: `{"from": "${e.source}", "to": "${e.target}"}`,
+    response: `{"status": 200, "ok": true}`,
+    status: 'success',
+  }));
+  const scenarios = buildDefaultScenarios(diagram.nodes, diagram.edges, flowSteps);
+  return {
+    ...diagram,
+    flowSteps,
+    scenarios,
+  };
 }

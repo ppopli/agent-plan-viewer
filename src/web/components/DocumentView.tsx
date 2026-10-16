@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { PlanState, PlanTask, FileChange } from '../../core/types.js';
 import {
   CheckSquare,
@@ -30,6 +30,12 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
   onStateChange,
 }) => {
   const [isEditingGoal, setIsEditingGoal] = useState(false);
+  const goalSnapshotRef = useRef({
+    title: planState.goal.title,
+    description: planState.goal.description,
+  });
+  const taskTitleSnapshots = useRef<Record<string, string>>({});
+
   const [newTaskText, setNewTaskText] = useState('');
   const [activeTaskNoteId, setActiveTaskNoteId] = useState<string | null>(null);
   const [taskNoteInput, setTaskNoteInput] = useState('');
@@ -60,6 +66,55 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
     return `${current}\n${formatted}`;
   };
 
+  // Commit goal modifications to user instructions audit stream
+  const commitGoalEdits = () => {
+    let instructions = planState.userInstructions || '';
+    let changed = false;
+
+    if (planState.goal.title !== goalSnapshotRef.current.title && planState.goal.title.trim()) {
+      instructions = appendAutoInstruction(
+        `Updated plan goal title: "${planState.goal.title.trim()}"`,
+        { ...planState, userInstructions: instructions }
+      );
+      changed = true;
+    }
+
+    if (planState.goal.description !== goalSnapshotRef.current.description && planState.goal.description.trim()) {
+      const descSummary = planState.goal.description.trim().length > 60
+        ? `${planState.goal.description.trim().substring(0, 60)}...`
+        : planState.goal.description.trim();
+      instructions = appendAutoInstruction(
+        `Updated architectural scope: "${descSummary}"`,
+        { ...planState, userInstructions: instructions }
+      );
+      changed = true;
+    }
+
+    if (changed) {
+      goalSnapshotRef.current = {
+        title: planState.goal.title,
+        description: planState.goal.description,
+      };
+      onStateChange({
+        ...planState,
+        userInstructions: instructions,
+      });
+    }
+  };
+
+  const handleToggleGoalEdit = () => {
+    if (isEditingGoal) {
+      commitGoalEdits();
+      setIsEditingGoal(false);
+    } else {
+      goalSnapshotRef.current = {
+        title: planState.goal.title,
+        description: planState.goal.description,
+      };
+      setIsEditingGoal(true);
+    }
+  };
+
   // Handle task checkbox toggle
   const toggleTask = (taskId: string) => {
     const targetTask = planState.tasks.find((t) => t.id === taskId);
@@ -85,7 +140,6 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
 
   // Handle task text edit
   const updateTaskTitle = (taskId: string, newTitle: string) => {
-    const targetTask = planState.tasks.find((t) => t.id === taskId);
     const nextTasks = planState.tasks.map((t) =>
       t.id === taskId ? { ...t, title: newTitle } : t
     );
@@ -94,6 +148,20 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
       ...planState,
       tasks: nextTasks,
     });
+  };
+
+  const handleTaskTitleBlur = (taskId: string, currentTitle: string) => {
+    const original = taskTitleSnapshots.current[taskId];
+    if (original !== undefined && original !== currentTitle && currentTitle.trim()) {
+      const updatedInstructions = appendAutoInstruction(
+        `Renamed task: "${original}" -> "${currentTitle.trim()}"`
+      );
+      taskTitleSnapshots.current[taskId] = currentTitle.trim();
+      onStateChange({
+        ...planState,
+        userInstructions: updatedInstructions,
+      });
+    }
   };
 
   // Save task note
@@ -166,7 +234,15 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
     const nextTasks = [...planState.tasks];
     const [moved] = nextTasks.splice(idx, 1);
     nextTasks.splice(targetIdx, 0, moved);
-    onStateChange({ ...planState, tasks: nextTasks });
+
+    const logMsg = `Reordered task: "${moved.title}" to position #${targetIdx + 1}`;
+    const updatedInstructions = appendAutoInstruction(logMsg);
+
+    onStateChange({
+      ...planState,
+      tasks: nextTasks,
+      userInstructions: updatedInstructions,
+    });
   };
 
   // Update Goal
@@ -193,7 +269,7 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
           </div>
 
           <button
-            onClick={() => setIsEditingGoal(!isEditingGoal)}
+            onClick={handleToggleGoalEdit}
             className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 transition"
           >
             {isEditingGoal ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Edit3 className="w-3.5 h-3.5" />}
@@ -207,12 +283,20 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
               type="text"
               value={planState.goal.title}
               onChange={(e) => updateGoal('title', e.target.value)}
+              onBlur={commitGoalEdits}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  commitGoalEdits();
+                  setIsEditingGoal(false);
+                }
+              }}
               className="text-xl font-bold bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white w-full focus:outline-none focus:border-emerald-500"
               placeholder="Plan Goal Title"
             />
             <textarea
               value={planState.goal.description}
               onChange={(e) => updateGoal('description', e.target.value)}
+              onBlur={commitGoalEdits}
               rows={3}
               className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-slate-200 focus:outline-none focus:border-emerald-500 resize-y"
               placeholder="Describe what the plan accomplishes..."
@@ -295,7 +379,16 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
                 <input
                   type="text"
                   value={task.title}
+                  onFocus={() => {
+                    taskTitleSnapshots.current[task.id] = task.title;
+                  }}
                   onChange={(e) => updateTaskTitle(task.id, e.target.value)}
+                  onBlur={() => handleTaskTitleBlur(task.id, task.title)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      (e.target as HTMLInputElement).blur();
+                    }
+                  }}
                   className={`flex-1 bg-transparent text-sm focus:outline-none border-b border-transparent focus:border-emerald-500 transition ${
                     task.completed ? 'line-through text-slate-500' : 'text-slate-200'
                   }`}

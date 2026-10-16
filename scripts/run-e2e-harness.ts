@@ -25,6 +25,10 @@ async function delay(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function expectOrLog(msg: string, val: any) {
+  console.log(`  - ${msg}: ${val}`);
+}
+
 async function run() {
   console.log(`\n🚀 Starting Agent Plan Viewer Automated E2E Regression Harness...`);
   console.log(`🎯 Target Application: ${APP_URL}`);
@@ -92,12 +96,49 @@ async function run() {
     });
 
     // =========================================================================
-    // Test Path 2: Inline Task Note & Real-time Auto-Prefill into Feedback
+    // Test Path 2: Execution Target Inline Edit & Real-time Auto-Prefill Feedback
     // =========================================================================
-    console.log('\n--- Running Path 2: Inline Task Note & Auto-Prefill Feedback ---');
+    console.log('\n--- Running Path 2: Target Inline Edit, Task Notes & Auto-Prefill Feedback ---');
     const startP2 = Date.now();
 
-    // Click sticky note button on task #2
+    // 1. Edit Execution Target
+    console.log('  Testing Execution Target Inline Editing & Auto-logging...');
+    const editTargetBtn = await page.evaluate(() => {
+      const btns = Array.from(document.querySelectorAll('button'));
+      const b = btns.find((btn) => btn.textContent && btn.textContent.includes('Edit Target'));
+      if (b) {
+        (b as HTMLElement).click();
+        return true;
+      }
+      return false;
+    });
+    expectOrLog('Found Edit Target button', editTargetBtn);
+    await delay(300);
+
+    const titleInput = await page.$('input[placeholder="Plan Goal Title"]');
+    if (titleInput) {
+      await titleInput.click();
+      await page.keyboard.down('Meta');
+      await page.keyboard.press('a');
+      await page.keyboard.up('Meta');
+      await titleInput.press('Backspace');
+      await titleInput.type('Implementation Plan: Resilient E-Commerce Architecture v2');
+      await delay(200);
+    }
+
+    const doneEditBtn = await page.evaluate(() => {
+      const btns = Array.from(document.querySelectorAll('button'));
+      const b = btns.find((btn) => btn.textContent && btn.textContent.includes('Done Editing'));
+      if (b) {
+        (b as HTMLElement).click();
+        return true;
+      }
+      return false;
+    });
+    expectOrLog('Clicked Done Editing button', doneEditBtn);
+    await delay(400);
+
+    // 2. Click sticky note button on task #2
     const noteButtons = await page.$$('button[title*="Add inline feedback note"]');
     if (noteButtons.length > 1) {
       await noteButtons[1].click();
@@ -108,7 +149,7 @@ async function run() {
         await noteInput.type('Ensure Redis distributed lock TTL is set to 3000ms.');
         const saveBtn = await page.evaluate(() => {
           const btns = Array.from(document.querySelectorAll('button'));
-          const s = btns.find((b) => b.textContent && b.textContent.includes('Save'));
+          const s = btns.find((b) => b.textContent?.trim() === 'Save');
           if (s) {
             (s as HTMLElement).click();
             return true;
@@ -119,33 +160,36 @@ async function run() {
       }
     }
 
-    // Toggle task #1 completion
+    // 3. Toggle task #1 completion
     const toggleButtons = await page.$$('button[title="Toggle task completion"]');
     if (toggleButtons.length > 0) {
       await toggleButtons[0].click();
       await delay(300);
     }
 
-    // Assert that Agent Feedback textarea now contains the instructions
+    // 4. Assert that Agent Feedback textarea now contains BOTH the target update and task instructions!
     const feedbackVal = await page.$eval(
       'textarea[placeholder*="e.g. Ensure connection pooling"]',
       (el: any) => el.value || ''
     );
 
-    const feedbackPrefilled =
-      feedbackVal.includes('Ensure Redis distributed lock') || feedbackVal.includes('Completed task');
-    console.log(`  ✓ Real-time feedback auto-prefilled verified: ${feedbackPrefilled}`);
-    console.log(`    Prefilled snippet: "${feedbackVal.split('\n').slice(-2).join(' | ')}"`);
+    const targetLogged = feedbackVal.includes('Updated plan goal title');
+    const taskLogged = feedbackVal.includes('Ensure Redis distributed lock') || feedbackVal.includes('Completed task');
+    const allLogged = targetLogged && taskLogged;
+
+    console.log(`  ✓ Target Section modification logged: ${targetLogged}`);
+    console.log(`  ✓ Task notes & toggle logged: ${taskLogged}`);
+    console.log(`    Feedback stream snapshot:\n${feedbackVal.split('\n').map(l => '      ' + l).join('\n')}`);
 
     const p2Screenshot = path.join(SCREENSHOTS_DIR, '02_inline_note_prefill_feedback.png');
     await page.screenshot({ path: p2Screenshot });
     results.push({
       id: 'HP-01',
-      name: 'Inline Task Note & Real-Time Feedback Auto-Prefill',
-      passed: feedbackPrefilled,
+      name: 'Target Inline Edit, Task Notes & Feedback Auto-Capture',
+      passed: allLogged,
       durationMs: Date.now() - startP2,
       screenshotPath: p2Screenshot,
-      observation: `Auto-populated agent instructions textarea with timestamped note: ${feedbackVal.substring(0, 60)}...`,
+      observation: `Verified that modifying Target Title and adding Task Notes automatically pre-fills Agent Instructions: ${feedbackVal.substring(0, 100)}...`,
     });
 
     // =========================================================================
@@ -188,15 +232,38 @@ async function run() {
     });
     console.log(`  ✓ Live 2-way split Mermaid syntax drawer active: ${liveMermaidPresent}`);
 
+    // Switch back to Document View to verify that Diagram addition was also captured in feedback!
+    await page.evaluate(() => {
+      const tabs = Array.from(document.querySelectorAll('button'));
+      const docTab = tabs.find((b) => b.textContent && b.textContent.includes('Plan & Tasks'));
+      if (docTab) (docTab as HTMLElement).click();
+    });
+    await delay(400);
+
+    const feedbackAfterDiagram = await page.$eval(
+      'textarea[placeholder*="e.g. Ensure connection pooling"]',
+      (el: any) => el.value || ''
+    );
+    const diagramLogged = feedbackAfterDiagram.includes('Added diagram component');
+    console.log(`  ✓ Diagram component addition logged in Agent Feedback: ${diagramLogged}`);
+
+    // Switch back to Diagram tab for screenshot
+    await page.evaluate(() => {
+      const tabs = Array.from(document.querySelectorAll('button'));
+      const diagTab = tabs.find((b) => b.textContent && b.textContent.includes('Diagram Canvas'));
+      if (diagTab) (diagTab as HTMLElement).click();
+    });
+    await delay(400);
+
     const p3Screenshot = path.join(SCREENSHOTS_DIR, '03_diagram_canvas_handles_split_mermaid.png');
     await page.screenshot({ path: p3Screenshot });
     results.push({
       id: 'HP-06',
       name: 'Diagram Canvas 4-Way Handles & Live Split Mermaid Sync',
-      passed: liveMermaidPresent,
+      passed: liveMermaidPresent && diagramLogged,
       durationMs: Date.now() - startP3,
       screenshotPath: p3Screenshot,
-      observation: 'Verified 4 boundary handles on custom nodes and 2-way Mermaid code sync drawer.',
+      observation: 'Verified 4 boundary handles on custom nodes, 2-way Mermaid code sync drawer, and diagram changes logging into feedback stream.',
     });
 
     // =========================================================================

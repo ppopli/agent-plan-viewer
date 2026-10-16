@@ -95,6 +95,7 @@ export interface PlanDiff {
   tasksRemoved: string[];
   tasksModified: string[];
   diagramChanges: string[];
+  goalChanges?: string[];
   instructionsChanged: boolean;
 }
 

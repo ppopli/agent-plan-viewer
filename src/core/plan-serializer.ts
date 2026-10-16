@@ -4,7 +4,22 @@ import { serializeToMermaid, computeDiagramDiff } from './mermaid-graph-bridge.j
 export function serializePlanMarkdown(state: PlanState): string {
   let markdown = state.rawMarkdown;
 
-  // 1. Replace Mermaid diagram blocks with updated diagrams
+  // 1. Update Goal Title if present
+  if (state.goal?.title) {
+    if (/^#\s+[^\n]+/m.test(markdown)) {
+      markdown = markdown.replace(/^#\s+[^\n]+/m, `# ${state.goal.title}`);
+    }
+  }
+
+  // 2. Update Goal Description if present
+  if (state.goal?.description) {
+    const goalHeadingRegex = /^(#{1,3}\s+(?:Goal|Overview|Description)[^\n]*\n)([\s\S]*?)(?=\n#{1,3}\s+|$)/im;
+    if (goalHeadingRegex.test(markdown)) {
+      markdown = markdown.replace(goalHeadingRegex, `$1${state.goal.description.trim()}\n`);
+    }
+  }
+
+  // 3. Replace Mermaid diagram blocks with updated diagrams
   const mermaidRegex = /```mermaid\s*([\s\S]*?)```/g;
   let diagIdx = 0;
   markdown = markdown.replace(mermaidRegex, (match, rawCode) => {
@@ -15,7 +30,13 @@ export function serializePlanMarkdown(state: PlanState): string {
     return match;
   });
 
-  // 2. Re-serialize tasks into markdown
+  // Append any newly created diagrams if original markdown had fewer mermaid blocks
+  while (diagIdx < state.diagrams.length) {
+    const newMermaid = serializeToMermaid(state.diagrams[diagIdx++]);
+    markdown = `${markdown.trim()}\n\n## System Architecture\n\n\`\`\`mermaid\n${newMermaid}\n\`\`\`\n`;
+  }
+
+  // 4. Re-serialize tasks into markdown
   const lines = markdown.split('\n');
   const taskLines = state.tasks.map(t => {
     const indentStr = '  '.repeat(t.indent || 0);
@@ -39,7 +60,7 @@ export function serializePlanMarkdown(state: PlanState): string {
     markdown = `${markdown.trim()}\n\n## Tasks\n${taskLines.join('\n')}\n`;
   }
 
-  // 3. Append or update User Feedback section if user instructions exist
+  // 5. Append or update User Feedback section if user instructions exist
   if (state.userInstructions && state.userInstructions.trim().length > 0) {
     const instructionsHeader = '## User Feedback & Review Notes';
     if (markdown.includes(instructionsHeader)) {
@@ -84,12 +105,33 @@ export function calculatePlanDiff(original: PlanState, updated: PlanState): Plan
     const diffs = computeDiagramDiff(original.diagrams[i], updated.diagrams[i]);
     diagramChanges.push(...diffs);
   }
+  for (let i = minDiags; i < updated.diagrams.length; i++) {
+    const newDiag = updated.diagrams[i];
+    diagramChanges.push(`Created new ${newDiag.type} diagram (${newDiag.nodes.length} components, ${newDiag.edges.length} connections)`);
+    for (const n of newDiag.nodes) {
+      diagramChanges.push(`Added component '${n.label}' (${n.type})`);
+    }
+    for (const e of newDiag.edges) {
+      const src = newDiag.nodes.find(n => n.id === e.source)?.label || e.source;
+      const tgt = newDiag.nodes.find(n => n.id === e.target)?.label || e.target;
+      diagramChanges.push(`Connected '${src}' -> '${tgt}'`);
+    }
+  }
+
+  const goalChanges: string[] = [];
+  if (original.goal.title !== updated.goal.title) {
+    goalChanges.push(`Goal Title: "${original.goal.title}" -> "${updated.goal.title}"`);
+  }
+  if (original.goal.description !== updated.goal.description) {
+    goalChanges.push(`Architectural Scope updated`);
+  }
 
   return {
     tasksAdded,
     tasksRemoved,
     tasksModified,
     diagramChanges,
+    goalChanges,
     instructionsChanged: (original.userInstructions || '') !== (updated.userInstructions || ''),
   };
 }
@@ -113,10 +155,15 @@ export function formatAgentInstructions(result: ReviewResult): string {
   const hasDiffs = diff.tasksAdded.length > 0 ||
     diff.tasksRemoved.length > 0 ||
     diff.tasksModified.length > 0 ||
-    diff.diagramChanges.length > 0;
+    diff.diagramChanges.length > 0 ||
+    (diff.goalChanges && diff.goalChanges.length > 0);
 
   if (hasDiffs) {
     lines.push(`\n### Plan Modifications Made by User:`);
+    if (diff.goalChanges && diff.goalChanges.length > 0) {
+      lines.push(`- **Execution Target & Goal Updates**:`);
+      diff.goalChanges.forEach(g => lines.push(`  * ${g}`));
+    }
     if (diff.tasksAdded.length > 0) {
       lines.push(`- **Tasks Added**:`);
       diff.tasksAdded.forEach(t => lines.push(`  + ${t}`));

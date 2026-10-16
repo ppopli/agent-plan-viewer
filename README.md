@@ -59,14 +59,25 @@ npm run build
 
 ## Agent Integration (Skill)
 
-Install the skill into your project's `.agents/skills/agent-plan-viewer/` or `.claude/skills/agent-plan-viewer/`:
-- Copy [`skills/agent-plan-viewer/SKILL.md`](./skills/agent-plan-viewer/SKILL.md).
+Agent Plan Viewer can be installed as an autonomous skill across **Google Antigravity (AGY)**, **Claude Code**, **Cursor**, **Codex**, and custom pipelines with a single command:
 
-When the agent finishes planning, it runs:
 ```bash
-npx agent-plan-viewer review <path-to-plan.md> --json
+# Install into the current workspace (.agents/skills, .claude/skills, .cursor/rules, AGENTS.md, CLAUDE.md)
+npx github:ppopli/agent-plan-viewer install-skill
+
+# Or install globally across your machine
+npx github:ppopli/agent-plan-viewer install-skill --global
 ```
-The agent awaits user approval, parses the returned JSON diff, and proceeds autonomously with the approved architecture!
+
+👉 **See the complete installation guide: [`skills/agent-plan-viewer/README.md`](./skills/agent-plan-viewer/README.md)**
+
+### How It Works:
+1. Run `npx github:ppopli/agent-plan-viewer install-skill` (or copy [`skills/agent-plan-viewer/SKILL.md`](./skills/agent-plan-viewer/SKILL.md) into `.agents/skills/agent-plan-viewer/` or `.claude/skills/agent-plan-viewer/`).
+2. When the agent finishes planning, it runs:
+   ```bash
+   npx agent-plan-viewer review <path-to-plan.md> --json
+   ```
+3. The agent awaits user approval, parses the returned JSON diff and user instructions, and proceeds autonomously with the approved architecture!
 
 ---
 

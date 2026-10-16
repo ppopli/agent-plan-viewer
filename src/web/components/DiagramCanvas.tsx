@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import {
   ReactFlow,
   Background,
@@ -27,9 +27,11 @@ import {
   Code2,
   LayoutGrid,
   Link2,
+  Plus,
 } from 'lucide-react';
 import { PlanState, ParsedDiagram, DiagramNode, DiagramEdge, NodeType } from '../../core/types.js';
-import { autoLayout, serializeToMermaid } from '../../core/mermaid-graph-bridge.js';
+import { autoLayout, serializeToMermaid, rebuildDiagramFlows } from '../../core/mermaid-graph-bridge.js';
+import { appendAutoInstruction } from '../utils/instructions.js';
 
 // Custom 4-Way Node Component with Handles on all 4 boundaries and delete button
 const CustomDiagramNode: React.FC<NodeProps> = ({ id, data, selected }) => {
@@ -111,6 +113,9 @@ const CustomDiagramNode: React.FC<NodeProps> = ({ id, data, selected }) => {
 
         {/* Delete Node Button */}
         <button
+          onMouseDown={(e) => {
+            e.stopPropagation();
+          }}
           onClick={(e) => {
             e.stopPropagation();
             if (data.onDeleteNode && typeof data.onDeleteNode === 'function') {
@@ -132,7 +137,10 @@ const CustomDiagramNode: React.FC<NodeProps> = ({ id, data, selected }) => {
           autoFocus
           onChange={(e) => setLabel(e.target.value)}
           onBlur={handleBlur}
-          onKeyDown={(e) => e.key === 'Enter' && handleBlur()}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === 'Enter') handleBlur();
+          }}
           className="text-xs font-semibold bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-white w-full outline-none focus:border-emerald-500"
         />
       ) : (
@@ -160,21 +168,61 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
   const [selectedDiagIdx, setSelectedDiagIdx] = useState(0);
   const [showMermaidCode, setShowMermaidCode] = useState(false);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+
+  const deleteButtonRef = useRef<HTMLButtonElement>(null);
+  const reactFlowWrapperRef = useRef<HTMLDivElement>(null);
+
+  const hasSelection = Boolean(selectedEdgeId || selectedNodeId);
 
   const diagram: ParsedDiagram | undefined = planState.diagrams[selectedDiagIdx];
 
   const nodeTypes = useMemo(() => ({ custom: CustomDiagramNode }), []);
 
+  // Deselect on click outside the canvas
+  useEffect(() => {
+    const handleDocumentMouseDown = (e: MouseEvent) => {
+      // Don't deselect if clicking inside the Delete button itself
+      if (deleteButtonRef.current && deleteButtonRef.current.contains(e.target as Node)) {
+        return;
+      }
+      // If clicking outside the React Flow canvas (e.g. top toolbar, switcher, page)
+      if (
+        reactFlowWrapperRef.current &&
+        !reactFlowWrapperRef.current.contains(e.target as Node)
+      ) {
+        setSelectedEdgeId(null);
+        setSelectedNodeId(null);
+      }
+    };
+
+    window.addEventListener('mousedown', handleDocumentMouseDown);
+    return () => {
+      window.removeEventListener('mousedown', handleDocumentMouseDown);
+    };
+  }, []);
+
   // Update node label
   const handleNodeLabelChange = useCallback(
     (nodeId: string, newLabel: string) => {
       if (!diagram) return;
+      const targetNode = diagram.nodes.find((n) => n.id === nodeId);
+      if (!targetNode || targetNode.label === newLabel) return;
+
       const nextNodes = diagram.nodes.map((n) =>
         n.id === nodeId ? { ...n, label: newLabel } : n
       );
       const nextDiagrams = [...planState.diagrams];
-      nextDiagrams[selectedDiagIdx] = { ...diagram, nodes: nextNodes };
-      onStateChange({ ...planState, diagrams: nextDiagrams });
+      nextDiagrams[selectedDiagIdx] = rebuildDiagramFlows({ ...diagram, nodes: nextNodes });
+      const updatedInstructions = appendAutoInstruction(
+        `Renamed diagram component: "${targetNode.label}" -> "${newLabel}"`,
+        planState.userInstructions
+      );
+      onStateChange({
+        ...planState,
+        diagrams: nextDiagrams,
+        userInstructions: updatedInstructions,
+      });
     },
     [diagram, planState, selectedDiagIdx, onStateChange]
   );
@@ -183,17 +231,31 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
   const handleDeleteNode = useCallback(
     (nodeId: string) => {
       if (!diagram) return;
+      const targetNode = diagram.nodes.find((n) => n.id === nodeId);
       const nextNodes = diagram.nodes.filter((n) => n.id !== nodeId);
       const nextEdges = diagram.edges.filter(
         (e) => e.source !== nodeId && e.target !== nodeId
       );
       const nextDiagrams = [...planState.diagrams];
-      nextDiagrams[selectedDiagIdx] = {
+      nextDiagrams[selectedDiagIdx] = rebuildDiagramFlows({
         ...diagram,
         nodes: nextNodes,
         edges: nextEdges,
-      };
-      onStateChange({ ...planState, diagrams: nextDiagrams });
+      });
+      const updatedInstructions = appendAutoInstruction(
+        `Removed diagram component: "${targetNode?.label || nodeId}" (${targetNode?.type || 'node'})`,
+        planState.userInstructions
+      );
+      onStateChange({
+        ...planState,
+        diagrams: nextDiagrams,
+        userInstructions: updatedInstructions,
+      });
+      setSelectedNodeId(null);
+      setSelectedEdgeId((currentEdgeId) => {
+        if (!currentEdgeId) return null;
+        return nextEdges.some((e) => e.id === currentEdgeId) ? currentEdgeId : null;
+      });
     },
     [diagram, planState, selectedDiagIdx, onStateChange]
   );
@@ -202,10 +264,24 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
   const handleDeleteEdge = useCallback(
     (edgeId: string) => {
       if (!diagram) return;
+      const edgeToDelete = diagram.edges.find((e) => e.id === edgeId);
+      const sourceNode = edgeToDelete ? diagram.nodes.find((n) => n.id === edgeToDelete.source) : null;
+      const targetNode = edgeToDelete ? diagram.nodes.find((n) => n.id === edgeToDelete.target) : null;
+      const srcLabel = sourceNode?.label || edgeToDelete?.source || 'node';
+      const tgtLabel = targetNode?.label || edgeToDelete?.target || 'node';
+
       const nextEdges = diagram.edges.filter((e) => e.id !== edgeId);
       const nextDiagrams = [...planState.diagrams];
-      nextDiagrams[selectedDiagIdx] = { ...diagram, edges: nextEdges };
-      onStateChange({ ...planState, diagrams: nextDiagrams });
+      nextDiagrams[selectedDiagIdx] = rebuildDiagramFlows({ ...diagram, edges: nextEdges });
+      const updatedInstructions = appendAutoInstruction(
+        `Removed diagram connection: "${srcLabel}" -> "${tgtLabel}"`,
+        planState.userInstructions
+      );
+      onStateChange({
+        ...planState,
+        diagrams: nextDiagrams,
+        userInstructions: updatedInstructions,
+      });
       setSelectedEdgeId(null);
     },
     [diagram, planState, selectedDiagIdx, onStateChange]
@@ -218,6 +294,7 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
       id: n.id,
       type: 'custom',
       position: { x: n.x, y: n.y },
+      selected: selectedNodeId === n.id,
       data: {
         label: n.label,
         type: n.type,
@@ -226,7 +303,7 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
         onDeleteNode: handleDeleteNode,
       },
     }));
-  }, [diagram, handleNodeLabelChange, handleDeleteNode]);
+  }, [diagram, selectedNodeId, handleNodeLabelChange, handleDeleteNode]);
 
   // React Flow edges with selection styling
   const flowEdges: Edge[] = useMemo(() => {
@@ -241,6 +318,7 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
         targetHandle: e.targetHandle,
         label: e.label,
         reconnectable: true,
+        selected: isSelected,
         style: {
           stroke: isSelected ? '#f59e0b' : e.style === 'dashed' ? '#94a3b8' : '#22c55e',
           strokeWidth: isSelected ? 3.5 : e.style === 'thick' ? 3 : 1.5,
@@ -257,7 +335,7 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
   const onNodesChange = useCallback(
     (changes: any) => {
       if (!diagram) return;
-      let hasPositionOrRemove = false;
+      let hasPosition = false;
       const nextNodes = [...diagram.nodes];
 
       for (const change of changes) {
@@ -266,59 +344,98 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
           if (target) {
             target.x = change.position.x;
             target.y = change.position.y;
-            hasPositionOrRemove = true;
+            hasPosition = true;
           }
         } else if (change.type === 'remove') {
-          const idx = nextNodes.findIndex((n) => n.id === change.id);
-          if (idx !== -1) {
-            nextNodes.splice(idx, 1);
-            hasPositionOrRemove = true;
+          handleDeleteNode(change.id);
+          return;
+        } else if (change.type === 'select') {
+          if (change.selected) {
+            setSelectedNodeId(change.id);
+            setSelectedEdgeId(null);
+          } else if (selectedNodeId === change.id) {
+            setSelectedNodeId(null);
           }
         }
       }
 
-      if (hasPositionOrRemove) {
+      if (hasPosition) {
         const nextDiagrams = [...planState.diagrams];
         nextDiagrams[selectedDiagIdx] = { ...diagram, nodes: nextNodes };
         onStateChange({ ...planState, diagrams: nextDiagrams });
       }
     },
-    [diagram, planState, selectedDiagIdx, onStateChange]
+    [diagram, planState, selectedDiagIdx, onStateChange, handleDeleteNode, selectedNodeId]
   );
 
   // Edge changes handling
   const onEdgesChange = useCallback(
     (changes: any) => {
       if (!diagram) return;
-      let hasChange = false;
-      let nextEdges = [...diagram.edges];
 
       for (const change of changes) {
         if (change.type === 'remove') {
-          nextEdges = nextEdges.filter((e) => e.id !== change.id);
-          hasChange = true;
+          handleDeleteEdge(change.id);
+          return;
         } else if (change.type === 'select') {
           if (change.selected) {
             setSelectedEdgeId(change.id);
+            setSelectedNodeId(null);
           } else if (selectedEdgeId === change.id) {
             setSelectedEdgeId(null);
           }
         }
       }
+    },
+    [diagram, handleDeleteEdge, selectedEdgeId]
+  );
 
-      if (hasChange) {
-        const nextDiagrams = [...planState.diagrams];
-        nextDiagrams[selectedDiagIdx] = { ...diagram, edges: nextEdges };
-        onStateChange({ ...planState, diagrams: nextDiagrams });
+  // Pane click (click on empty canvas background)
+  const onPaneClick = useCallback(() => {
+    setSelectedEdgeId(null);
+    setSelectedNodeId(null);
+  }, []);
+
+  // Edge click
+  const onEdgeClick = useCallback((event: React.MouseEvent, edge: Edge) => {
+    event.stopPropagation();
+    setSelectedEdgeId(edge.id);
+    setSelectedNodeId(null);
+  }, []);
+
+  // Node click
+  const onNodeClick = useCallback((event: React.MouseEvent, node: Node) => {
+    event.stopPropagation();
+    setSelectedNodeId(node.id);
+    setSelectedEdgeId(null);
+  }, []);
+
+  // Selection change from React Flow
+  const onSelectionChange = useCallback(
+    ({ nodes, edges }: { nodes: Node[]; edges: Edge[] }) => {
+      if (edges.length > 0) {
+        setSelectedEdgeId(edges[0].id);
+        setSelectedNodeId(null);
+      } else if (nodes.length > 0) {
+        setSelectedNodeId(nodes[0].id);
+        setSelectedEdgeId(null);
+      } else {
+        setSelectedEdgeId(null);
+        setSelectedNodeId(null);
       }
     },
-    [diagram, planState, selectedDiagIdx, onStateChange, selectedEdgeId]
+    []
   );
 
   // Connect new edge (connectable on any 4 handles)
   const onConnect = useCallback(
     (connection: Connection) => {
       if (!diagram || !connection.source || !connection.target) return;
+      const sourceNode = diagram.nodes.find((n) => n.id === connection.source);
+      const targetNode = diagram.nodes.find((n) => n.id === connection.target);
+      const srcLabel = sourceNode?.label || connection.source;
+      const tgtLabel = targetNode?.label || connection.target;
+
       const newEdge: DiagramEdge = {
         id: `e-${connection.source}-${connection.target}-${Date.now()}`,
         source: connection.source,
@@ -330,11 +447,19 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
       };
 
       const nextDiagrams = [...planState.diagrams];
-      nextDiagrams[selectedDiagIdx] = {
+      nextDiagrams[selectedDiagIdx] = rebuildDiagramFlows({
         ...diagram,
         edges: [...diagram.edges, newEdge],
-      };
-      onStateChange({ ...planState, diagrams: nextDiagrams });
+      });
+      const updatedInstructions = appendAutoInstruction(
+        `Connected diagram: "${srcLabel}" -> "${tgtLabel}"`,
+        planState.userInstructions
+      );
+      onStateChange({
+        ...planState,
+        diagrams: nextDiagrams,
+        userInstructions: updatedInstructions,
+      });
     },
     [diagram, planState, selectedDiagIdx, onStateChange]
   );
@@ -343,6 +468,10 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
   const onReconnect = useCallback(
     (oldEdge: Edge, newConnection: Connection) => {
       if (!diagram || !newConnection.source || !newConnection.target) return;
+      const sourceNode = diagram.nodes.find((n) => n.id === newConnection.source);
+      const targetNode = diagram.nodes.find((n) => n.id === newConnection.target);
+      const srcLabel = sourceNode?.label || newConnection.source;
+      const tgtLabel = targetNode?.label || newConnection.target;
 
       const nextEdges = diagram.edges.map((e) => {
         if (e.id === oldEdge.id) {
@@ -358,8 +487,16 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
       });
 
       const nextDiagrams = [...planState.diagrams];
-      nextDiagrams[selectedDiagIdx] = { ...diagram, edges: nextEdges };
-      onStateChange({ ...planState, diagrams: nextDiagrams });
+      nextDiagrams[selectedDiagIdx] = rebuildDiagramFlows({ ...diagram, edges: nextEdges });
+      const updatedInstructions = appendAutoInstruction(
+        `Rewired diagram connection to: "${srcLabel}" -> "${tgtLabel}"`,
+        planState.userInstructions
+      );
+      onStateChange({
+        ...planState,
+        diagrams: nextDiagrams,
+        userInstructions: updatedInstructions,
+      });
     },
     [diagram, planState, selectedDiagIdx, onStateChange]
   );
@@ -391,7 +528,15 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
       ...diagram,
       nodes: [...diagram.nodes, newNode],
     };
-    onStateChange({ ...planState, diagrams: nextDiagrams });
+    const updatedInstructions = appendAutoInstruction(
+      `Added diagram component: "${newNode.label}" (${newNode.type})`,
+      planState.userInstructions
+    );
+    onStateChange({
+      ...planState,
+      diagrams: nextDiagrams,
+      userInstructions: updatedInstructions,
+    });
   };
 
   // Run auto layout
@@ -402,17 +547,73 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
 
     const nextDiagrams = [...planState.diagrams];
     nextDiagrams[selectedDiagIdx] = { ...diagram, nodes: nextNodes };
-    onStateChange({ ...planState, diagrams: nextDiagrams });
+    const updatedInstructions = appendAutoInstruction(
+      `Applied automated layered layout to architecture diagram`,
+      planState.userInstructions
+    );
+    onStateChange({
+      ...planState,
+      diagrams: nextDiagrams,
+      userInstructions: updatedInstructions,
+    });
+  };
+
+  // Initialize a new diagram when plan has no diagrams
+  const handleCreateNewDiagram = () => {
+    const starterNodes: DiagramNode[] = [
+      { id: 'Client', label: 'Client / User', type: 'actor', shape: 'circle', x: 100, y: 180 },
+      { id: 'Gateway', label: 'API Gateway', type: 'gateway', shape: 'rounded', x: 360, y: 180 },
+      { id: 'CoreService', label: 'Core Service', type: 'service', shape: 'box', x: 620, y: 180 },
+    ];
+    const starterEdges: DiagramEdge[] = [
+      { id: 'e-Client-Gateway-0', source: 'Client', target: 'Gateway', label: 'HTTP Request', style: 'solid', animated: true },
+      { id: 'e-Gateway-CoreService-1', source: 'Gateway', target: 'CoreService', label: 'Route', style: 'solid', animated: true },
+    ];
+    const newDiag: ParsedDiagram = rebuildDiagramFlows({
+      id: `diag-${planState.diagrams.length + 1}`,
+      type: 'flowchart',
+      rawMermaid: '',
+      nodes: starterNodes,
+      edges: starterEdges,
+      flowSteps: [],
+      scenarios: [],
+    });
+
+    const updatedInstructions = appendAutoInstruction(
+      `Initialized new architecture diagram on canvas`,
+      planState.userInstructions
+    );
+
+    onStateChange({
+      ...planState,
+      diagrams: [...planState.diagrams, newDiag],
+      userInstructions: updatedInstructions,
+    });
+    setSelectedDiagIdx(planState.diagrams.length);
   };
 
   if (!diagram) {
     return (
-      <div className="flex flex-col items-center justify-center h-[calc(100vh-64px)] text-slate-400">
-        <Layers className="w-12 h-12 mb-3 text-slate-600" />
-        <h3 className="text-base font-semibold text-slate-300">No Diagrams Found in Plan</h3>
-        <p className="text-xs text-slate-500 mt-1">
-          Add a ````mermaid block to your plan or create an architecture diagram.
-        </p>
+      <div className="flex flex-col items-center justify-center h-[calc(100vh-64px)] text-slate-400 p-6">
+        <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center shadow-2xl">
+          <div className="w-14 h-14 rounded-2xl bg-slate-800/80 border border-slate-700 flex items-center justify-center mx-auto mb-4 text-slate-400">
+            <Layers className="w-7 h-7" />
+          </div>
+          <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-amber-500/10 text-amber-300 border border-amber-500/20 mb-2">
+            Text-Only Plan Mode
+          </span>
+          <h3 className="text-lg font-bold text-white">No Diagrams Found in Plan</h3>
+          <p className="text-xs text-slate-400 mt-2 leading-relaxed">
+            This plan file does not contain any <code className="text-indigo-300 bg-slate-950 px-1.5 py-0.5 rounded">```mermaid</code> architecture or sequence blocks. You can review and edit all tasks in the <strong>Plan &amp; Tasks</strong> tab, or initialize an interactive diagram below.
+          </p>
+          <button
+            onClick={handleCreateNewDiagram}
+            className="mt-5 inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/30 transition cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Initialize Architecture Diagram</span>
+          </button>
+        </div>
       </div>
     );
   }
@@ -475,16 +676,45 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
             </button>
           </div>
 
-          {/* Delete Edge Action if edge is selected */}
-          {selectedEdgeId && (
-            <button
-              onClick={() => handleDeleteEdge(selectedEdgeId)}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 transition"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>Delete Connection</span>
-            </button>
-          )}
+          {/* Delete Action button (Delete Connection / Delete Component, disabled when nothing is selected) */}
+          <button
+            ref={deleteButtonRef}
+            disabled={!hasSelection}
+            onMouseDown={(e) => {
+              // Crucial: prevent canvas blur/deselect on mousedown before click triggers
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (selectedEdgeId) {
+                handleDeleteEdge(selectedEdgeId);
+              } else if (selectedNodeId) {
+                handleDeleteNode(selectedNodeId);
+              }
+            }}
+            title={
+              selectedEdgeId
+                ? 'Delete selected connection (Del)'
+                : selectedNodeId
+                ? 'Delete selected component (Del)'
+                : 'Select an edge or component to delete'
+            }
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition ${
+              hasSelection
+                ? 'bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 cursor-pointer shadow-sm'
+                : 'bg-slate-800/40 text-slate-500 border border-slate-800 cursor-not-allowed opacity-40'
+            }`}
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>
+              {selectedEdgeId
+                ? 'Delete Connection'
+                : selectedNodeId
+                ? 'Delete Component'
+                : 'Delete'}
+            </span>
+          </button>
 
           <button
             onClick={handleAutoLayout}
@@ -511,7 +741,7 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
 
       {/* Main Canvas with optional Split Mermaid Preview */}
       <div className="flex-1 flex overflow-hidden">
-        <div className="flex-1 h-full relative">
+        <div className="flex-1 h-full relative" ref={reactFlowWrapperRef}>
           <ReactFlow
             nodes={flowNodes}
             edges={flowEdges}
@@ -519,6 +749,10 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
             onReconnect={onReconnect}
+            onPaneClick={onPaneClick}
+            onEdgeClick={onEdgeClick}
+            onNodeClick={onNodeClick}
+            onSelectionChange={onSelectionChange}
             nodeTypes={nodeTypes}
             deleteKeyCode={['Backspace', 'Delete']}
             fitView

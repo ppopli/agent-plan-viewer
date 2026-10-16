@@ -6,6 +6,7 @@ import fs from 'fs';
 import { PlanViewerServer } from './server.js';
 import { ReviewResult } from '../core/types.js';
 import { formatAgentInstructions } from '../core/plan-serializer.js';
+import { installSkill } from './installer.js';
 
 const program = new Command();
 
@@ -96,6 +97,24 @@ program
     const server = new PlanViewerServer({ planPath, port });
     const actualPort = await server.start();
     console.log(chalk.green(`Agent Plan Viewer running at http://localhost:${actualPort}`));
+  });
+
+program
+  .command('install-skill')
+  .alias('init')
+  .alias('add-skill')
+  .description('Install and configure the agent-plan-viewer skill in Antigravity, Claude Code, or Cursor')
+  .option('-t, --target <target>', 'Target agent: agy, claude, cursor, or all', 'all')
+  .option('-g, --global', 'Install globally to user home directory instead of current workspace')
+  .option('--dry-run', 'Preview files that would be created without writing')
+  .option('--no-rules', 'Do not update rule files (AGENTS.md, CLAUDE.md, .cursorrules)')
+  .action(async (options: { target: 'all' | 'agy' | 'claude' | 'cursor'; global?: boolean; dryRun?: boolean; rules?: boolean }) => {
+    await installSkill({
+      target: options.target,
+      global: options.global,
+      dryRun: options.dryRun,
+      skipRules: options.rules === false,
+    });
   });
 
 program.parse(process.argv);
