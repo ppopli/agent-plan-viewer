@@ -3,6 +3,7 @@ import { PlanState } from '../../core/types.js';
 import { calculatePlanDiff, formatAgentInstructions } from '../../core/plan-serializer.js';
 import { GitCompare, Terminal, Eye, Code, Plus, Minus, RefreshCw, Sparkles } from 'lucide-react';
 import { marked } from 'marked';
+import { InlineMarkdown } from '../utils/markdown.js';
 
 interface DiffPreviewProps {
   initialState: PlanState;
@@ -52,7 +53,7 @@ export const DiffPreview: React.FC<DiffPreviewProps> = ({
               {diff.goalChanges.map((g, i) => (
                 <div key={i} className="flex items-start gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mt-1.5 shrink-0" />
-                  <span>{g}</span>
+                  <InlineMarkdown content={g} />
                 </div>
               ))}
             </div>
@@ -75,19 +76,25 @@ export const DiffPreview: React.FC<DiffPreviewProps> = ({
                 {diff.tasksAdded.map((t, i) => (
                   <div key={i} className="flex items-start gap-2 text-emerald-400">
                     <Plus className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                    <span>Added: {t}</span>
+                    <span>
+                      Added: <InlineMarkdown content={t} />
+                    </span>
                   </div>
                 ))}
                 {diff.tasksRemoved.map((t, i) => (
                   <div key={i} className="flex items-start gap-2 text-rose-400">
                     <Minus className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                    <span>Removed: {t}</span>
+                    <span>
+                      Removed: <InlineMarkdown content={t} />
+                    </span>
                   </div>
                 ))}
                 {diff.tasksModified.map((t, i) => (
                   <div key={i} className="flex items-start gap-2 text-amber-400">
                     <RefreshCw className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                    <span>Modified: {t}</span>
+                    <span>
+                      Modified: <InlineMarkdown content={t} />
+                    </span>
                   </div>
                 ))}
               </div>

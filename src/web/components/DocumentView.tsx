@@ -17,8 +17,10 @@ import {
   StickyNote,
   Database,
   Search,
+  BookOpen,
 } from 'lucide-react';
 import { CodeSection } from './CodeSection.js';
+import { InlineMarkdown, BlockMarkdown } from '../utils/markdown.js';
 
 interface DocumentViewProps {
   planState: PlanState;
@@ -36,6 +38,7 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
   });
   const taskTitleSnapshots = useRef<Record<string, string>>({});
 
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [newTaskText, setNewTaskText] = useState('');
   const [activeTaskNoteId, setActiveTaskNoteId] = useState<string | null>(null);
   const [taskNoteInput, setTaskNoteInput] = useState('');
@@ -55,6 +58,21 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
     const isFileChange = /^\[(NEW|MODIFY|DELETE)\]/i.test(s.heading.trim());
     const matchesKeyword = /schema|database|data model|entity|table|models/i.test(s.heading);
     return !isFileChange && matchesKeyword && s.content.trim().length > 0;
+  });
+
+  // Additional markdown sections (e.g. Key System Specifications & Sizing tables, Verification Plan, etc.)
+  const docSections = (planState.sections || []).filter((s) => {
+    const h = s.heading.trim();
+    const isTitle = h === planState.goal.title || h.toLowerCase() === 'overview';
+    const isGoal = /goal|overview|description/i.test(h);
+    const isTasks = /task|checklist/i.test(h);
+    const isFileChange = /^\[(NEW|MODIFY|DELETE)\]/i.test(h) || /^proposed (file )?changes$/i.test(h) || /^component:/i.test(h);
+    const isSchema = /schema|database|data model|entity|table|models/i.test(h);
+    const cleaned = s.content
+      .replace(/```mermaid[\s\S]*?```/gi, '')
+      .replace(/^\s*---+\s*$/gm, '')
+      .trim();
+    return !isTitle && !isGoal && !isTasks && !isFileChange && !isSchema && cleaned.length > 0;
   });
 
   // Helper to append automatic instruction notes to userInstructions
@@ -305,11 +323,11 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
         ) : (
           <div>
             <h1 className="text-2xl font-bold text-white mb-2 tracking-tight">
-              {planState.goal.title}
+              <InlineMarkdown content={planState.goal.title} />
             </h1>
-            <p className="text-sm text-slate-300 leading-relaxed bg-slate-950/40 p-3.5 rounded-xl border border-slate-800/80">
-              {planState.goal.description || 'AI-generated plan overview.'}
-            </p>
+            <div className="bg-slate-950/40 p-4 rounded-xl border border-slate-800/80">
+              <BlockMarkdown content={planState.goal.description || 'AI-generated plan overview.'} />
+            </div>
           </div>
         )}
       </div>
@@ -325,7 +343,7 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
             </span>
           </div>
           <span className="text-xs text-slate-400">
-            Edits & task notes automatically append to Agent Feedback below
+            Click any task to edit · Edits & notes auto-append to Agent Feedback
           </span>
         </div>
 
@@ -353,133 +371,172 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
 
         {/* Task List */}
         <div className="space-y-2 mb-4">
-          {filteredTasks.map((task, idx) => (
-            <div
-              key={task.id}
-              className={`group rounded-xl border transition ${
-                task.completed
-                  ? 'bg-slate-950/40 border-slate-800/60 opacity-60'
-                  : 'bg-slate-800/40 border-slate-700/60 hover:border-slate-600'
-              }`}
-              style={{ marginLeft: `${task.indent * 20}px` }}
-            >
-              <div className="flex items-center gap-3 p-2.5">
-                <button
-                  onClick={() => toggleTask(task.id)}
-                  className="text-slate-400 hover:text-emerald-400 transition"
-                  title="Toggle task completion"
-                >
-                  {task.completed ? (
-                    <CheckSquare className="w-4 h-4 text-emerald-400" />
-                  ) : (
-                    <Square className="w-4 h-4" />
-                  )}
-                </button>
+          {filteredTasks.map((task, idx) => {
+            const isPhaseHeader = task.indent === 0 && /^\*\*.*\*\*$/.test(task.title.trim());
+            const isEditingThisTask = editingTaskId === task.id;
 
-                <input
-                  type="text"
-                  value={task.title}
-                  onFocus={() => {
-                    taskTitleSnapshots.current[task.id] = task.title;
-                  }}
-                  onChange={(e) => updateTaskTitle(task.id, e.target.value)}
-                  onBlur={() => handleTaskTitleBlur(task.id, task.title)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      (e.target as HTMLInputElement).blur();
-                    }
-                  }}
-                  className={`flex-1 bg-transparent text-sm focus:outline-none border-b border-transparent focus:border-emerald-500 transition ${
-                    task.completed ? 'line-through text-slate-500' : 'text-slate-200'
-                  }`}
-                />
-
-                <div className="flex items-center gap-1">
+            return (
+              <div
+                key={task.id}
+                className={`group rounded-xl border transition ${
+                  task.completed
+                    ? 'bg-slate-950/40 border-slate-800/60 opacity-60'
+                    : isPhaseHeader
+                    ? 'bg-slate-800/75 border-slate-700 hover:border-slate-600'
+                    : 'bg-slate-800/40 border-slate-700/60 hover:border-slate-600'
+                }`}
+                style={{ marginLeft: `${task.indent * 20}px` }}
+              >
+                <div className="flex items-center gap-3 p-2.5">
                   <button
-                    onClick={() => {
-                      setActiveTaskNoteId(activeTaskNoteId === task.id ? null : task.id);
-                      setTaskNoteInput(task.notes || '');
-                    }}
-                    title="Add inline feedback note for agent on this task"
-                    className={`p-1.5 rounded-lg text-xs transition ${
-                      task.notes
-                        ? 'bg-indigo-500/20 text-indigo-300'
-                        : 'text-slate-400 hover:text-indigo-300 hover:bg-slate-700'
-                    }`}
+                    onClick={() => toggleTask(task.id)}
+                    className="text-slate-400 hover:text-emerald-400 transition shrink-0"
+                    title="Toggle task completion"
                   >
-                    <StickyNote className="w-3.5 h-3.5" />
+                    {task.completed ? (
+                      <CheckSquare className="w-4 h-4 text-emerald-400" />
+                    ) : (
+                      <Square className="w-4 h-4" />
+                    )}
                   </button>
 
-                  <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition">
-                    <button
-                      onClick={() => moveTask(idx, 'up')}
-                      disabled={idx === 0}
-                      className="p-1 rounded text-slate-400 hover:text-white disabled:opacity-20"
-                    >
-                      <ArrowUp className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => moveTask(idx, 'down')}
-                      disabled={idx === planState.tasks.length - 1}
-                      className="p-1 rounded text-slate-400 hover:text-white disabled:opacity-20"
-                    >
-                      <ArrowDown className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => deleteTask(task.id)}
-                      className="p-1 rounded text-slate-400 hover:text-rose-400"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Existing note or inline note editor */}
-              {(task.notes || activeTaskNoteId === task.id) && (
-                <div className="px-3 pb-3 pt-1 border-t border-slate-800/60 bg-slate-950/40 rounded-b-xl">
-                  {activeTaskNoteId === task.id ? (
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={taskNoteInput}
-                        onChange={(e) => setTaskNoteInput(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && saveTaskNote(task.id)}
-                        placeholder="Add specific instructions for this task..."
-                        className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white outline-none focus:border-indigo-500"
-                        autoFocus
-                      />
-                      <button
-                        onClick={() => saveTaskNote(task.id)}
-                        className="px-2.5 py-1 rounded-lg text-xs bg-indigo-600 hover:bg-indigo-500 text-white font-medium"
-                      >
-                        Save
-                      </button>
-                      <button
-                        onClick={() => setActiveTaskNoteId(null)}
-                        className="px-2 py-1 rounded-lg text-xs text-slate-400 hover:text-white"
-                      >
-                        Cancel
-                      </button>
-                    </div>
+                  {isEditingThisTask ? (
+                    <input
+                      type="text"
+                      value={task.title}
+                      autoFocus
+                      onFocus={() => {
+                        taskTitleSnapshots.current[task.id] = task.title;
+                      }}
+                      onChange={(e) => updateTaskTitle(task.id, e.target.value)}
+                      onBlur={() => {
+                        handleTaskTitleBlur(task.id, task.title);
+                        setEditingTaskId(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === 'Escape') {
+                          (e.target as HTMLInputElement).blur();
+                        }
+                      }}
+                      className={`flex-1 bg-slate-950/80 px-2 py-0.5 rounded text-sm focus:outline-none border border-emerald-500 transition ${
+                        task.completed ? 'line-through text-slate-500' : 'text-slate-100'
+                      }`}
+                    />
                   ) : (
-                    <div className="flex items-center justify-between text-xs text-indigo-300 font-mono">
-                      <span>Note: {task.notes}</span>
-                      <button
-                        onClick={() => {
-                          setActiveTaskNoteId(task.id);
-                          setTaskNoteInput(task.notes || '');
-                        }}
-                        className="text-[11px] text-slate-400 hover:text-white"
-                      >
-                        Edit
-                      </button>
+                    <div
+                      onClick={() => {
+                        taskTitleSnapshots.current[task.id] = task.title;
+                        setEditingTaskId(task.id);
+                      }}
+                      title="Click to edit task text"
+                      className={`flex-1 text-sm cursor-text py-0.5 border-b border-transparent hover:border-slate-700 transition leading-relaxed ${
+                        task.completed ? 'line-through text-slate-500' : 'text-slate-200'
+                      }`}
+                    >
+                      <InlineMarkdown content={task.title} />
                     </div>
                   )}
+
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={() => {
+                        setActiveTaskNoteId(activeTaskNoteId === task.id ? null : task.id);
+                        setTaskNoteInput(task.notes || '');
+                      }}
+                      title="Add inline feedback note for agent on this task"
+                      className={`p-1.5 rounded-lg text-xs transition ${
+                        task.notes
+                          ? 'bg-indigo-500/20 text-indigo-300'
+                          : 'text-slate-400 hover:text-indigo-300 hover:bg-slate-700'
+                      }`}
+                    >
+                      <StickyNote className="w-3.5 h-3.5" />
+                    </button>
+
+                    <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition">
+                      <button
+                        onClick={() => {
+                          taskTitleSnapshots.current[task.id] = task.title;
+                          setEditingTaskId(task.id);
+                        }}
+                        title="Edit task title"
+                        className="p-1 rounded text-slate-400 hover:text-white"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => moveTask(idx, 'up')}
+                        disabled={idx === 0}
+                        className="p-1 rounded text-slate-400 hover:text-white disabled:opacity-20"
+                      >
+                        <ArrowUp className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => moveTask(idx, 'down')}
+                        disabled={idx === planState.tasks.length - 1}
+                        className="p-1 rounded text-slate-400 hover:text-white disabled:opacity-20"
+                      >
+                        <ArrowDown className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => deleteTask(task.id)}
+                        className="p-1 rounded text-slate-400 hover:text-rose-400"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
                 </div>
-              )}
-            </div>
-          ))}
+
+                {/* Existing note or inline note editor */}
+                {(task.notes || activeTaskNoteId === task.id) && (
+                  <div className="px-3 pb-3 pt-1 border-t border-slate-800/60 bg-slate-950/40 rounded-b-xl">
+                    {activeTaskNoteId === task.id ? (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={taskNoteInput}
+                          onChange={(e) => setTaskNoteInput(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && saveTaskNote(task.id)}
+                          placeholder="Add specific instructions for this task..."
+                          className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white outline-none focus:border-indigo-500"
+                          autoFocus
+                        />
+                        <button
+                          onClick={() => saveTaskNote(task.id)}
+                          className="px-2.5 py-1 rounded-lg text-xs bg-indigo-600 hover:bg-indigo-500 text-white font-medium"
+                        >
+                          Save
+                        </button>
+                        <button
+                          onClick={() => setActiveTaskNoteId(null)}
+                          className="px-2 py-1 rounded-lg text-xs text-slate-400 hover:text-white"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between text-xs text-indigo-300">
+                        <span>
+                          <strong className="font-mono">Note:</strong>{' '}
+                          <InlineMarkdown content={task.notes || ''} />
+                        </span>
+                        <button
+                          onClick={() => {
+                            setActiveTaskNoteId(task.id);
+                            setTaskNoteInput(task.notes || '');
+                          }}
+                          className="text-[11px] text-slate-400 hover:text-white ml-2 shrink-0"
+                        >
+                          Edit
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         {/* Add Task Input */}
@@ -525,19 +582,28 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
               return (
                 <div
                   key={idx}
-                  className="flex items-center justify-between p-3 rounded-xl bg-slate-950/60 border border-slate-800/80"
+                  className="flex flex-col justify-between p-3.5 rounded-xl bg-slate-950/60 border border-slate-800/80 gap-1.5"
                 >
-                  <div className="flex items-center gap-2.5 truncate">
-                    {file.type === 'NEW' && <FilePlus className="w-4 h-4 text-emerald-400 shrink-0" />}
-                    {file.type === 'MODIFY' && <FileDiff className="w-4 h-4 text-blue-400 shrink-0" />}
-                    {file.type === 'DELETE' && <Trash2 className="w-4 h-4 text-rose-400 shrink-0" />}
-                    <span className="text-xs font-mono text-slate-200 truncate">{file.path}</span>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5 truncate">
+                      {file.type === 'NEW' && <FilePlus className="w-4 h-4 text-emerald-400 shrink-0" />}
+                      {file.type === 'MODIFY' && <FileDiff className="w-4 h-4 text-blue-400 shrink-0" />}
+                      {file.type === 'DELETE' && <Trash2 className="w-4 h-4 text-rose-400 shrink-0" />}
+                      <span className="text-xs font-mono font-semibold text-slate-100 truncate">
+                        {file.path.replace(/`/g, '')}
+                      </span>
+                    </div>
+                    <span
+                      className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded border shrink-0 ${badgeStyle}`}
+                    >
+                      {file.type}
+                    </span>
                   </div>
-                  <span
-                    className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded border shrink-0 ${badgeStyle}`}
-                  >
-                    {file.type}
-                  </span>
+                  {file.summary && (
+                    <div className="text-xs text-slate-400 pl-6 leading-relaxed">
+                      <InlineMarkdown content={file.summary} />
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -567,6 +633,43 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
                 defaultLang="sql"
               />
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Additional Specifications, Tables & Verification Details */}
+      {docSections.length > 0 && (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <BookOpen className="w-5 h-5 text-teal-400" />
+              <h2 className="text-base font-semibold text-white">
+                Specifications, Sizing & Verification Details
+              </h2>
+            </div>
+            <span className="text-xs px-2.5 py-0.5 rounded-full bg-teal-500/10 text-teal-300 font-mono border border-teal-500/20">
+              {docSections.length} Sections
+            </span>
+          </div>
+
+          <div className="space-y-4">
+            {docSections.map((sec, idx) => {
+              const cleaned = sec.content
+                .replace(/```mermaid[\s\S]*?```/gi, '')
+                .replace(/^\s*---+\s*$/gm, '')
+                .trim();
+              return (
+                <div
+                  key={idx}
+                  className="bg-slate-950/45 border border-slate-800/80 rounded-xl p-4 space-y-2"
+                >
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-teal-400">
+                    <InlineMarkdown content={sec.heading} />
+                  </h3>
+                  <BlockMarkdown content={cleaned} />
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

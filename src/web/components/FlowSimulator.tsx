@@ -8,6 +8,7 @@ import {
   Handle,
   Position,
   NodeProps,
+  MarkerType,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import {
@@ -35,6 +36,8 @@ const SimNode: React.FC<NodeProps> = ({ id, data }) => {
   const isTarget = data.isTarget as boolean;
   const isInactive = data.isInactive as boolean;
   const isFailed = data.isFailed as boolean;
+  const rawLabel = (data.label as string) || id;
+  const labelLines = rawLabel.split('\n');
 
   let highlightRing = 'border-slate-800 bg-slate-900';
   if (isFailed && isTarget) {
@@ -49,10 +52,16 @@ const SimNode: React.FC<NodeProps> = ({ id, data }) => {
 
   return (
     <div
-      className={`px-4 py-3 rounded-xl border-2 min-w-[150px] text-white shadow-xl transition-all duration-300 ${highlightRing}`}
+      className={`px-4 py-3 rounded-xl border-2 w-[245px] max-w-[260px] text-white shadow-xl transition-all duration-300 ${highlightRing}`}
     >
-      <Handle type="target" position={Position.Top} className="!opacity-0" />
-      <Handle type="target" position={Position.Left} className="!opacity-0" />
+      <Handle type="target" position={Position.Top} id="top-tgt" className="!opacity-0" />
+      <Handle type="source" position={Position.Top} id="top-src" className="!opacity-0" />
+      <Handle type="source" position={Position.Bottom} id="bottom-src" className="!opacity-0" />
+      <Handle type="target" position={Position.Bottom} id="bottom-tgt" className="!opacity-0" />
+      <Handle type="source" position={Position.Right} id="right-src" className="!opacity-0" />
+      <Handle type="target" position={Position.Right} id="right-tgt" className="!opacity-0" />
+      <Handle type="target" position={Position.Left} id="left-tgt" className="!opacity-0" />
+      <Handle type="source" position={Position.Left} id="left-src" className="!opacity-0" />
 
       <div className="flex items-center justify-between mb-1">
         <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
@@ -75,12 +84,16 @@ const SimNode: React.FC<NodeProps> = ({ id, data }) => {
         )}
       </div>
 
-      <div className="text-xs font-semibold text-slate-100 truncate">
-        {(data.label as string) || id}
+      <div className="space-y-0.5">
+        <div className="text-xs font-semibold text-slate-100 whitespace-normal break-words leading-snug">
+          {labelLines[0]}
+        </div>
+        {labelLines.length > 1 && (
+          <div className="text-[11px] font-medium text-slate-300/90 whitespace-normal break-words leading-snug">
+            {labelLines.slice(1).join(' · ')}
+          </div>
+        )}
       </div>
-
-      <Handle type="source" position={Position.Bottom} className="!opacity-0" />
-      <Handle type="source" position={Position.Right} className="!opacity-0" />
     </div>
   );
 };
@@ -201,24 +214,36 @@ export const FlowSimulator: React.FC<FlowSimulatorProps> = ({
     return diagram.edges.map((e) => {
       const isActive = currentStep?.source === e.source && currentStep?.target === e.target;
       const isFailed = currentStep?.status === 'failure';
+      const strokeColor = isActive ? (isFailed ? '#f43f5e' : '#f59e0b') : '#334155';
 
       return {
         id: e.id,
         source: e.source,
         target: e.target,
+        type: 'smoothstep',
+        pathOptions: { borderRadius: 16, offset: 22 },
+        sourceHandle: e.sourceHandle,
+        targetHandle: e.targetHandle,
         label: e.label,
         animated: isActive,
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          width: 15,
+          height: 15,
+          color: strokeColor,
+        },
         style: {
-          stroke: isActive ? (isFailed ? '#f43f5e' : '#f59e0b') : '#334155',
-          strokeWidth: isActive ? 4 : 1.5,
-          opacity: isActive ? 1 : 0.3,
+          stroke: strokeColor,
+          strokeWidth: isActive ? 4 : 1.75,
+          opacity: isActive ? 1 : 0.35,
         },
         labelStyle: {
           fill: isActive ? (isFailed ? '#fda4af' : '#fcd34d') : '#64748b',
           fontWeight: isActive ? 700 : 500,
           fontSize: 11,
         },
-        labelBgStyle: { fill: '#0f172a' },
+        labelBgStyle: { fill: '#0f172a', fillOpacity: 0.92, rx: 5, ry: 5 },
+        labelBgPadding: [6, 4] as [number, number],
       };
     });
   }, [diagram, currentStep]);

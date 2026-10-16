@@ -2,7 +2,10 @@ import { PlanState, PlanTask, FileChange, GoalInfo, ParsedDiagram } from './type
 import { parseMermaid } from './mermaid-graph-bridge.js';
 
 function cleanTextContent(text: string): string {
-  return text.replace(/```mermaid[\s\S]*?```/gi, '').trim();
+  return text
+    .replace(/```mermaid[\s\S]*?```/gi, '')
+    .replace(/^\s*---+\s*$/gm, '')
+    .trim();
 }
 
 export function parsePlanMarkdown(markdown: string): PlanState {
@@ -66,11 +69,11 @@ export function parsePlanMarkdown(markdown: string): PlanState {
     s.heading.toLowerCase().includes('description')
   );
   if (goalSection && cleanTextContent(goalSection.content).length > 0) {
-    goalDesc = cleanTextContent(goalSection.content).slice(0, 500);
+    goalDesc = cleanTextContent(goalSection.content);
   } else {
     const firstNonEmpty = sections.find(s => cleanTextContent(s.content).length > 0);
     if (firstNonEmpty) {
-      goalDesc = cleanTextContent(firstNonEmpty.content).slice(0, 500);
+      goalDesc = cleanTextContent(firstNonEmpty.content);
     }
   }
 
@@ -118,21 +121,28 @@ export function parsePlanMarkdown(markdown: string): PlanState {
   }
 
   // Extract File Changes: [NEW], [MODIFY], [DELETE]
-  const fileRegex = /####?\s+\[(NEW|MODIFY|DELETE)\]\s+([^\n]+)/gi;
-  let fileMatch;
-  while ((fileMatch = fileRegex.exec(markdown)) !== null) {
-    const type = fileMatch[1].toUpperCase() as 'NEW' | 'MODIFY' | 'DELETE';
-    const filePath = fileMatch[2].trim();
-    fileChanges.push({
-      path: filePath,
-      type,
-    });
+  for (const sec of sections) {
+    const secFileMatch = sec.heading.match(/^\[(NEW|MODIFY|DELETE)\]\s+(.+)$/i);
+    if (secFileMatch) {
+      const type = secFileMatch[1].toUpperCase() as 'NEW' | 'MODIFY' | 'DELETE';
+      const filePath = secFileMatch[2].replace(/`/g, '').trim();
+      const summary = cleanTextContent(sec.content)
+        .split('\n')
+        .map(l => l.replace(/^\s*[-*+]\s+/, '').trim())
+        .filter(Boolean)
+        .join(' · ');
+      fileChanges.push({
+        path: filePath,
+        type,
+        summary: summary || undefined,
+      });
+    }
   }
 
   const bulletFileRegex = /[-*+]\s+`([^`]+)`\s*:\s*(\[(NEW|MODIFY|DELETE)\])?\s*(.*)/gi;
   let bMatch;
   while ((bMatch = bulletFileRegex.exec(markdown)) !== null) {
-    const filePath = bMatch[1].trim();
+    const filePath = bMatch[1].replace(/`/g, '').trim();
     const type = (bMatch[3] ? bMatch[3].toUpperCase() : 'MODIFY') as 'NEW' | 'MODIFY' | 'DELETE';
     const summary = bMatch[4]?.trim();
     if (!fileChanges.some(f => f.path === filePath)) {

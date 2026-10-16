@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { PlanState, BaselineCheckpoint } from '../core/types.js';
+import { parsePlanMarkdown } from '../core/plan-parser.js';
 import { usePlanHistory } from './hooks/usePlanHistory.js';
 import { ApprovalHeader, ActiveTab } from './components/ApprovalHeader.js';
 import { BaselinesDrawer } from './components/BaselinesDrawer.js';
@@ -29,7 +30,16 @@ export const App: React.FC = () => {
       })
       .then((data) => {
         setPlanPath(data.planPath);
-        setInitialState(data.state);
+        let state: PlanState = data.state;
+        // Re-hydrate from rawMarkdown if connected to a pre-existing server instance
+        if (state && state.rawMarkdown) {
+          const freshlyParsed = parsePlanMarkdown(state.rawMarkdown);
+          state = {
+            ...freshlyParsed,
+            userInstructions: state.userInstructions || freshlyParsed.userInstructions,
+          };
+        }
+        setInitialState(state);
         setInitialBaselines(data.baselines || []);
         setLoading(false);
       })

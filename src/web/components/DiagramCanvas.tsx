@@ -15,6 +15,7 @@ import {
   Handle,
   Position,
   NodeProps,
+  MarkerType,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import {
@@ -38,6 +39,10 @@ const CustomDiagramNode: React.FC<NodeProps> = ({ id, data, selected }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [label, setLabel] = useState((data.label as string) || id);
 
+  useEffect(() => {
+    setLabel((data.label as string) || id);
+  }, [data.label, id]);
+
   const nodeType = (data.type as NodeType) || 'service';
 
   const getIcon = () => {
@@ -59,16 +64,16 @@ const CustomDiagramNode: React.FC<NodeProps> = ({ id, data, selected }) => {
   const getBgStyle = () => {
     switch (nodeType) {
       case 'database':
-        return 'border-amber-500/40 bg-amber-950/30';
+        return 'border-amber-500/40 bg-amber-950/40';
       case 'queue':
-        return 'border-purple-500/40 bg-purple-950/30';
+        return 'border-purple-500/40 bg-purple-950/40';
       case 'gateway':
-        return 'border-blue-500/40 bg-blue-950/30';
+        return 'border-blue-500/40 bg-blue-950/40';
       case 'actor':
-        return 'border-emerald-500/40 bg-emerald-950/30';
+        return 'border-emerald-500/40 bg-emerald-950/40';
       case 'service':
       default:
-        return 'border-indigo-500/40 bg-slate-900';
+        return 'border-indigo-500/40 bg-slate-900/95';
     }
   };
 
@@ -79,24 +84,26 @@ const CustomDiagramNode: React.FC<NodeProps> = ({ id, data, selected }) => {
     }
   };
 
+  const labelLines = label.split('\n');
+
   return (
     <div
-      className={`group relative px-4 py-3 rounded-xl border-2 shadow-lg min-w-[170px] text-white transition-all ${getBgStyle()} ${
+      className={`group relative px-4 py-3 rounded-xl border-2 shadow-xl w-[245px] max-w-[260px] text-white transition-all ${getBgStyle()} ${
         selected ? 'ring-2 ring-emerald-400 border-emerald-400 shadow-emerald-950' : ''
       }`}
     >
-      {/* 4-Way Handles (Top, Right, Bottom, Left) - Both Source & Target on each boundary */}
+      {/* 4-Way Handles (Top, Bottom, Right, Left) - Primary Bottom source & Top target first */}
       {/* Top Handles */}
       <Handle type="target" position={Position.Top} id="top-tgt" className="!bg-emerald-400 !w-3 !h-3 !-top-1.5 hover:!scale-125 transition" />
       <Handle type="source" position={Position.Top} id="top-src" className="!bg-indigo-400 !w-2 !h-2 !-top-1 opacity-0 hover:opacity-100" />
 
-      {/* Right Handles */}
-      <Handle type="source" position={Position.Right} id="right-src" className="!bg-indigo-400 !w-3 !h-3 !-right-1.5 hover:!scale-125 transition" />
-      <Handle type="target" position={Position.Right} id="right-tgt" className="!bg-emerald-400 !w-2 !h-2 !-right-1 opacity-0 hover:opacity-100" />
-
       {/* Bottom Handles */}
       <Handle type="source" position={Position.Bottom} id="bottom-src" className="!bg-indigo-400 !w-3 !h-3 !-bottom-1.5 hover:!scale-125 transition" />
       <Handle type="target" position={Position.Bottom} id="bottom-tgt" className="!bg-emerald-400 !w-2 !h-2 !-bottom-1 opacity-0 hover:opacity-100" />
+
+      {/* Right Handles */}
+      <Handle type="source" position={Position.Right} id="right-src" className="!bg-indigo-400 !w-3 !h-3 !-right-1.5 hover:!scale-125 transition" />
+      <Handle type="target" position={Position.Right} id="right-tgt" className="!bg-emerald-400 !w-2 !h-2 !-right-1 opacity-0 hover:opacity-100" />
 
       {/* Left Handles */}
       <Handle type="target" position={Position.Left} id="left-tgt" className="!bg-emerald-400 !w-3 !h-3 !-left-1.5 hover:!scale-125 transition" />
@@ -146,10 +153,17 @@ const CustomDiagramNode: React.FC<NodeProps> = ({ id, data, selected }) => {
       ) : (
         <div
           onDoubleClick={() => setIsEditing(true)}
-          className="text-xs font-semibold text-slate-100 truncate cursor-text hover:text-emerald-300"
+          className="cursor-text hover:text-emerald-300 space-y-0.5"
           title="Double click to edit label"
         >
-          {label}
+          <div className="text-xs font-semibold text-slate-100 whitespace-normal break-words leading-snug">
+            {labelLines[0]}
+          </div>
+          {labelLines.length > 1 && (
+            <div className="text-[11px] font-medium text-slate-300/90 whitespace-normal break-words leading-snug">
+              {labelLines.slice(1).join(' · ')}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -305,27 +319,65 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
     }));
   }, [diagram, selectedNodeId, handleNodeLabelChange, handleDeleteNode]);
 
-  // React Flow edges with selection styling
+  // React Flow edges with selection styling, smoothstep routing & arrowheads
   const flowEdges: Edge[] = useMemo(() => {
     if (!diagram) return [];
+    const nodeMap = new Map(diagram.nodes.map((n) => [n.id, n]));
     return diagram.edges.map((e) => {
       const isSelected = selectedEdgeId === e.id;
+      const strokeColor = isSelected ? '#f59e0b' : e.style === 'dashed' ? '#94a3b8' : '#22c55e';
+
+      let sourceHandle = e.sourceHandle;
+      let targetHandle = e.targetHandle;
+      if (!sourceHandle || !targetHandle) {
+        const src = nodeMap.get(e.source);
+        const tgt = nodeMap.get(e.target);
+        if (src && tgt) {
+          const dx = tgt.x - src.x;
+          const dy = tgt.y - src.y;
+          if (e.style === 'dashed' && dx > 250) {
+            sourceHandle = sourceHandle || 'right-src';
+            targetHandle = targetHandle || 'left-tgt';
+          } else if (dy >= 50) {
+            sourceHandle = sourceHandle || 'bottom-src';
+            targetHandle = targetHandle || 'top-tgt';
+          } else if (dy <= -50) {
+            sourceHandle = sourceHandle || 'top-src';
+            targetHandle = targetHandle || 'bottom-tgt';
+          } else if (dx >= 0) {
+            sourceHandle = sourceHandle || 'right-src';
+            targetHandle = targetHandle || 'left-tgt';
+          } else {
+            sourceHandle = sourceHandle || 'left-src';
+            targetHandle = targetHandle || 'right-tgt';
+          }
+        }
+      }
+
       return {
         id: e.id,
         source: e.source,
         target: e.target,
-        sourceHandle: e.sourceHandle,
-        targetHandle: e.targetHandle,
+        type: 'smoothstep',
+        pathOptions: { borderRadius: 16, offset: 22 },
+        sourceHandle,
+        targetHandle,
         label: e.label,
         reconnectable: true,
         selected: isSelected,
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          width: 15,
+          height: 15,
+          color: strokeColor,
+        },
         style: {
-          stroke: isSelected ? '#f59e0b' : e.style === 'dashed' ? '#94a3b8' : '#22c55e',
-          strokeWidth: isSelected ? 3.5 : e.style === 'thick' ? 3 : 1.5,
+          stroke: strokeColor,
+          strokeWidth: isSelected ? 3.5 : e.style === 'thick' ? 3 : 1.75,
           strokeDasharray: e.style === 'dashed' ? '5,5' : undefined,
         },
-        labelStyle: { fill: '#cbd5e1', fontSize: 11, fontWeight: 500 },
-        labelBgStyle: { fill: '#0f172a', rx: 4, ry: 4 },
+        labelStyle: { fill: '#e2e8f0', fontSize: 11, fontWeight: 500 },
+        labelBgStyle: { fill: '#0f172a', fillOpacity: 0.92, rx: 5, ry: 5 },
         labelBgPadding: [6, 4] as [number, number],
       };
     });
