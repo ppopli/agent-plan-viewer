@@ -319,13 +319,36 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
     }));
   }, [diagram, selectedNodeId, handleNodeLabelChange, handleDeleteNode]);
 
-  // React Flow edges with selection styling, smoothstep routing & arrowheads
+  // React Flow edges with selection styling, smoothstep/bezier routing & arrowheads
   const flowEdges: Edge[] = useMemo(() => {
     if (!diagram) return [];
     const nodeMap = new Map(diagram.nodes.map((n) => [n.id, n]));
+    const dashedInCount = new Map<string, number>();
+    for (const e of diagram.edges) {
+      if (e.style === 'dashed') {
+        dashedInCount.set(e.target, (dashedInCount.get(e.target) || 0) + 1);
+      }
+    }
+
+    const outIdxBySource = new Map<string, number>();
     return diagram.edges.map((e) => {
+      const siblingIdx = outIdxBySource.get(e.source) || 0;
+      outIdxBySource.set(e.source, siblingIdx + 1);
+
       const isSelected = selectedEdgeId === e.id;
-      const strokeColor = isSelected ? '#f59e0b' : e.style === 'dashed' ? '#94a3b8' : '#22c55e';
+      const isConnectedToSelectedNode =
+        Boolean(selectedNodeId) && (selectedNodeId === e.source || selectedNodeId === e.target);
+      const isHighFanInDashed =
+        e.style === 'dashed' && (dashedInCount.get(e.target) || 0) >= 4;
+      const isHighlighted = isSelected || isConnectedToSelectedNode;
+
+      const strokeColor = isSelected
+        ? '#f59e0b'
+        : isConnectedToSelectedNode && e.style === 'dashed'
+        ? '#38bdf8'
+        : e.style === 'dashed'
+        ? '#64748b'
+        : '#22c55e';
 
       let sourceHandle = e.sourceHandle;
       let targetHandle = e.targetHandle;
@@ -354,26 +377,41 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
         }
       }
 
+      // Hide colliding labels on high-fan-in dashed telemetry edges unless selected/inspected
+      const visibleLabel =
+        isHighFanInDashed && !isHighlighted ? undefined : e.label;
+
       return {
         id: e.id,
         source: e.source,
         target: e.target,
-        type: 'smoothstep',
-        pathOptions: { borderRadius: 16, offset: 22 },
+        type: isHighFanInDashed ? 'default' : 'smoothstep',
+        pathOptions: isHighFanInDashed
+          ? undefined
+          : { borderRadius: 16, offset: 18 + (siblingIdx % 4) * 12 },
         sourceHandle,
         targetHandle,
-        label: e.label,
+        label: visibleLabel,
         reconnectable: true,
         selected: isSelected,
         markerEnd: {
           type: MarkerType.ArrowClosed,
-          width: 15,
-          height: 15,
+          width: isHighFanInDashed && !isHighlighted ? 11 : 15,
+          height: isHighFanInDashed && !isHighlighted ? 11 : 15,
           color: strokeColor,
         },
         style: {
           stroke: strokeColor,
-          strokeWidth: isSelected ? 3.5 : e.style === 'thick' ? 3 : 1.75,
+          strokeOpacity: isHighFanInDashed && !isHighlighted ? 0.24 : 1,
+          strokeWidth: isSelected
+            ? 3.5
+            : isHighlighted
+            ? 2.5
+            : e.style === 'thick'
+            ? 3
+            : isHighFanInDashed
+            ? 1.35
+            : 1.75,
           strokeDasharray: e.style === 'dashed' ? '5,5' : undefined,
         },
         labelStyle: { fill: '#e2e8f0', fontSize: 11, fontWeight: 500 },
@@ -381,7 +419,7 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
         labelBgPadding: [6, 4] as [number, number],
       };
     });
-  }, [diagram, selectedEdgeId]);
+  }, [diagram, selectedEdgeId, selectedNodeId]);
 
   // Node position & removal handling
   const onNodesChange = useCallback(

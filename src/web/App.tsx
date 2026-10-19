@@ -315,6 +315,7 @@ const PlanViewerContent: React.FC<ContentProps> = ({
             initialState={initialState}
             presentState={history.present}
             planPath={planPath}
+            onStateChange={history.pushAction}
           />
         )}
       </main>

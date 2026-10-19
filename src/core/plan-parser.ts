@@ -3,6 +3,7 @@ import { parseMermaid, extractScenariosFromPlanSections } from './mermaid-graph-
 
 function cleanTextContent(text: string): string {
   return text
+    .replace(/\\`\\`\\`mermaid[\s\S]*?\\`\\`\\`/gi, '')
     .replace(/```mermaid[\s\S]*?```/gi, '')
     .replace(/^\s*---+\s*$/gm, '')
     .trim();

@@ -57,6 +57,21 @@ describe('mermaid-graph-bridge', () => {
     expect(parsed.flowSteps[0].label).toBe('Login Request');
   });
 
+  it('should parse erDiagram entities and cardinality relationships', () => {
+    const erMermaid = `erDiagram
+    USER ||--o{ BOARD : owns
+    USER ||--o{ PIN : creates
+    BOARD ||--o{ BOARD_PIN : contains
+    PIN ||--o{ BOARD_PIN : "saved in"`;
+
+    const parsed = parseMermaid(erMermaid, 'diag-er');
+    expect(parsed.nodes.length).toBe(4);
+    expect(parsed.edges.length).toBe(4);
+    expect(parsed.nodes.every(n => n.type === 'database')).toBe(true);
+    expect(parsed.edges[0].label).toContain('owns');
+    expect(parsed.edges[3].label).toContain('saved in');
+  });
+
   it('should serialize parsed flowchart back to valid Mermaid', () => {
     const mermaid = `flowchart TD
     A[Service A]

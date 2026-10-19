@@ -224,34 +224,55 @@ export const FlowSimulator: React.FC<FlowSimulatorProps> = ({
   // Sim edges
   const simEdges: Edge[] = useMemo(() => {
     if (!diagram) return [];
-    return diagram.edges.map((e) => {
+    const dashedInDegree = new Map<string, number>();
+    for (const e of diagram.edges) {
+      if (e.style === 'dashed') {
+        dashedInDegree.set(e.target, (dashedInDegree.get(e.target) || 0) + 1);
+      }
+    }
+    const scenarioEdgeSet = new Set(steps.map((s) => `${s.source}->${s.target}`));
+
+    return diagram.edges.map((e, idx) => {
       const isActive = currentStep?.source === e.source && currentStep?.target === e.target;
+      const isInScenario = scenarioEdgeSet.has(`${e.source}->${e.target}`);
       const isFailed = currentStep?.status === 'failure';
-      const strokeColor = isActive ? (isFailed ? '#f43f5e' : '#f59e0b') : '#334155';
+      const isDashed = e.style === 'dashed';
+      const isHighFanInDashed = isDashed && (dashedInDegree.get(e.target) || 0) >= 4;
+      const strokeColor = isActive
+        ? isFailed
+          ? '#f43f5e'
+          : '#f59e0b'
+        : isInScenario
+        ? '#38bdf8'
+        : '#334155';
+      const showLabel = isActive || (isInScenario && !isHighFanInDashed);
 
       return {
         id: e.id,
         source: e.source,
         target: e.target,
-        type: 'smoothstep',
-        pathOptions: { borderRadius: 16, offset: 22 },
+        type: isHighFanInDashed ? 'default' : 'smoothstep',
+        pathOptions: isHighFanInDashed
+          ? { curvature: 0.25 }
+          : { borderRadius: 16, offset: 18 + (idx % 4) * 10 },
         sourceHandle: e.sourceHandle,
         targetHandle: e.targetHandle,
-        label: e.label,
+        label: showLabel ? e.label : undefined,
         animated: isActive,
         markerEnd: {
           type: MarkerType.ArrowClosed,
-          width: 15,
-          height: 15,
+          width: isActive ? 15 : isInScenario ? 13 : 10,
+          height: isActive ? 15 : isInScenario ? 13 : 10,
           color: strokeColor,
         },
         style: {
           stroke: strokeColor,
-          strokeWidth: isActive ? 4 : 1.75,
-          opacity: isActive ? 1 : 0.35,
+          strokeWidth: isActive ? 4 : isInScenario ? 2.25 : 1.25,
+          strokeDasharray: isDashed ? '6 4' : undefined,
+          opacity: isActive ? 1 : isInScenario ? 0.72 : 0.14,
         },
         labelStyle: {
-          fill: isActive ? (isFailed ? '#fda4af' : '#fcd34d') : '#64748b',
+          fill: isActive ? (isFailed ? '#fda4af' : '#fcd34d') : '#93c5fd',
           fontWeight: isActive ? 700 : 500,
           fontSize: 11,
         },
@@ -259,7 +280,7 @@ export const FlowSimulator: React.FC<FlowSimulatorProps> = ({
         labelBgPadding: [6, 4] as [number, number],
       };
     });
-  }, [diagram, currentStep]);
+  }, [diagram, currentStep, steps]);
 
   const handleNext = () => {
     if (currentStepIdx < steps.length - 1) {
@@ -498,26 +519,26 @@ export const FlowSimulator: React.FC<FlowSimulatorProps> = ({
       )}
 
       {/* 2. Controls & Stepper Bar */}
-      <div className="h-14 bg-slate-900/90 border-b border-slate-800 px-6 flex items-center justify-between z-10 shadow-md">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <span className="p-1.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20">
+      <div className="h-14 bg-slate-900/90 border-b border-slate-800 px-6 flex items-center justify-between gap-4 z-10 shadow-md">
+        <div className="flex items-center gap-4 shrink-0">
+          <div className="flex items-center gap-2.5">
+            <span className="p-1.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 shrink-0">
               <Activity className="w-4 h-4" />
             </span>
-            <div>
-              <span className="text-xs font-semibold text-white">
+            <div className="max-w-[260px]">
+              <div className="text-xs font-semibold text-white truncate" title={activeScenario?.name}>
                 {activeScenario?.name}
-              </span>
-              <div className="text-[11px] text-slate-400 font-mono">
+              </div>
+              <div className="text-[11px] text-slate-400 font-mono whitespace-nowrap">
                 Step {currentStepIdx + 1} of {steps.length} ({Math.round(((currentStepIdx + 1) / steps.length) * 100)}%)
               </div>
             </div>
           </div>
 
-          <div className="h-6 w-px bg-slate-800" />
+          <div className="h-6 w-px bg-slate-800 shrink-0" />
 
           {/* Stepper Buttons */}
-          <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
+          <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 shrink-0">
             <button
               onClick={handleReset}
               title="Reset to Step 1"
@@ -552,7 +573,7 @@ export const FlowSimulator: React.FC<FlowSimulatorProps> = ({
           </div>
 
           {/* Speed Toggle */}
-          <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
+          <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs shrink-0">
             {[0.5, 1, 2].map((s) => (
               <button
                 key={s}
@@ -570,15 +591,15 @@ export const FlowSimulator: React.FC<FlowSimulatorProps> = ({
         </div>
 
         {/* Components Touched in this Scenario */}
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] text-slate-400">Components Touched:</span>
-          <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2 min-w-0 overflow-hidden">
+          <span className="text-[11px] text-slate-400 shrink-0">Components Touched:</span>
+          <div className="flex items-center gap-1 overflow-x-auto py-1 scrollbar-thin">
             {activeScenario?.touchedComponents.map((compId) => {
               const node = diagram.nodes.find((n) => n.id === compId);
               return (
                 <span
                   key={compId}
-                  className="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 text-[10px] font-mono border border-slate-700"
+                  className="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 text-[10px] font-mono border border-slate-700 whitespace-nowrap shrink-0"
                 >
                   {node?.label || compId}
                 </span>

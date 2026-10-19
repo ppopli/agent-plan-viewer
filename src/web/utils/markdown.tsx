@@ -25,7 +25,12 @@ export function parseInlineMarkdown(text: string): string {
 export function parseBlockMarkdown(text: string): string {
   if (!text) return '';
   try {
-    return marked.parse(text) as string;
+    // Normalize collapsed single-line markdown tables (`| Col1 | Col2 | |---|---| | val1 | val2 |`) into multi-line GFM tables
+    let normalized = text;
+    if (/\|\s*\|\s*:?---/.test(normalized)) {
+      normalized = normalized.replace(/\|\s+\|(?=\s*(?::?---+|[a-zA-Z0-9_`*]))/g, '|\n|');
+    }
+    return marked.parse(normalized) as string;
   } catch {
     return text;
   }

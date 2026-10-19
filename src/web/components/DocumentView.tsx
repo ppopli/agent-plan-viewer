@@ -164,31 +164,67 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
     return !isFileChange && matchesKeyword && s.content.trim().length > 0;
   });
 
-  // Sections shown in the Interactive Document Sections card
+  // Supplementary specification sections (excludes Title, Goal, Diagram, Tasks, Scenarios, File Changes, and Schemas)
   const displayedIndexedSections = useMemo(() => {
-    if (showAllSectionsInStructured) {
-      return indexedSections;
-    }
     const filtered = indexedSections.filter((s) => {
       const h = s.heading.trim();
+      const cleaned = s.content
+        .replace(/\\`\\`\\`mermaid[\s\S]*?\\`\\`\\`/gi, '')
+        .replace(/```mermaid[\s\S]*?```/gi, '')
+        .replace(/^\s*---+\s*$/gm, '')
+        .trim();
+
+      if (cleaned.length === 0) return false;
+
       const isTitle = h === planState.goal.title && s.index === 0;
-      const isGoal = /^(goal|overview|description)/i.test(h);
-      const isTasks = /^(tasks|checklist|implementation steps)$/i.test(h);
+      const isGoal =
+        cleaned === (planState.goal.description || '').trim() ||
+        /goal|overview|description|executive summary/i.test(h);
+      const isDiagramSection =
+        /^(?:system\s+|architecture\s+|sequence\s+|flow\s+|data\s+)?diagrams?$/i.test(h);
+      const nonEmptyLines = cleaned.split('\n').map((l) => l.trim()).filter(Boolean);
+      const isAllCheckboxes =
+        nonEmptyLines.length > 0 &&
+        nonEmptyLines.every((l) => /^([-*+]|\d+\.)\s+\[[ xX]\]\s+/.test(l));
+      const isTasks =
+        /tasks?|checklist|implementation steps/i.test(h) || isAllCheckboxes;
+      const isScenarioSection =
+        planState.diagrams.length > 0 &&
+        (/^(?:request\s+flow\s+|high-volume\s+request\s+|execution\s+)?scenarios?$/i.test(h) ||
+          /^scenario\s*:/i.test(h));
       const isFileChange =
         /^\[(NEW|MODIFY|DELETE)\]/i.test(h) ||
         /^proposed (file )?changes$/i.test(h) ||
         /^component:/i.test(h);
       const isSchema = /schema|database|data model|entity|table|models/i.test(h);
       const isFeedback = /user feedback & review notes/i.test(h);
-      const cleaned = s.content
-        .replace(/```mermaid[\s\S]*?```/gi, '')
-        .replace(/^\s*---+\s*$/gm, '')
-        .trim();
-      return !isTitle && !isGoal && !isTasks && !isFileChange && !isSchema && !isFeedback && cleaned.length > 0;
+
+      return (
+        !isTitle &&
+        !isGoal &&
+        !isDiagramSection &&
+        !isTasks &&
+        !isScenarioSection &&
+        !isFileChange &&
+        !isSchema &&
+        !isFeedback
+      );
     });
-    // If this is a general Markdown file where filtering hid everything, show all sections automatically!
-    return filtered.length > 0 ? filtered : indexedSections;
-  }, [indexedSections, planState.goal.title, showAllSectionsInStructured]);
+
+    // If this is a plain Markdown document without tasks or diagrams and filtering hid everything, show non-empty sections
+    if (
+      filtered.length === 0 &&
+      planState.tasks.length === 0 &&
+      planState.diagrams.length === 0
+    ) {
+      return indexedSections.filter(
+        (s) =>
+          s.content.trim().length > 0 &&
+          s.content.trim() !== (planState.goal.description || '').trim()
+      );
+    }
+    return filtered;
+  }, [indexedSections, planState.goal.title, planState.goal.description, planState.tasks.length, planState.diagrams.length]);
 
   // Helper to append automatic instruction notes to userInstructions
   const appendAutoInstruction = (note: string, baseState = planState): string => {
@@ -656,122 +692,39 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
 
   return (
     <div className="max-w-5xl mx-auto py-8 px-4 space-y-6 animate-in fade-in duration-150">
-      {/* Universal Markdown & Inline Editor Mode Bar */}
-      <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-3 px-4 flex flex-wrap items-center justify-between gap-3 shadow-lg">
-        <div className="flex items-center gap-2">
-          <FileText className="w-4 h-4 text-emerald-400" />
-          <span className="text-xs font-semibold text-slate-200">Document & Markdown Editor Mode:</span>
-          <span className="text-[11px] text-slate-400 hidden sm:inline">
-            View & edit any section or individual line inline
-          </span>
-        </div>
-
-        <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800">
-          <button
-            onClick={() => setDocMode('structured')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-              docMode === 'structured'
-                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-semibold'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <BookOpen className="w-3.5 h-3.5" />
-            <span>Structured & Section Editor</span>
-          </button>
-          <button
-            onClick={() => setDocMode('lines')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-              docMode === 'lines'
-                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-semibold'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <AlignLeft className="w-3.5 h-3.5" />
-            <span>Line-by-Line Inline Editor ({allLines.length} lines)</span>
-          </button>
-          <button
-            onClick={() => {
-              setRawMarkdownDraft(planState.rawMarkdown);
-              setDocMode('raw');
-            }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-              docMode === 'raw'
-                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-semibold'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Code className="w-3.5 h-3.5" />
-            <span>Raw Markdown Source</span>
-          </button>
-        </div>
-      </div>
-
-      {/* MODE 2: Universal Line-by-Line Inline Markdown Editor */}
-      {docMode === 'lines' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4">
-            <div>
-              <h2 className="text-base font-semibold text-white flex items-center gap-2">
-                <AlignLeft className="w-5 h-5 text-emerald-400" />
-                <span>Universal Line-by-Line Markdown Editor</span>
-              </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Click any line (`L1`–`L{allLines.length}`) to edit it inline, insert new lines, or remove lines. Every edit syncs with Undo/Redo & Agent Feedback.
-              </p>
-            </div>
-            <div className="relative w-64">
-              <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5" />
-              <input
-                type="text"
-                value={lineSearchQuery}
-                onChange={(e) => setLineSearchQuery(e.target.value)}
-                placeholder="Search lines by text or L#..."
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-200 outline-none focus:border-emerald-500"
-              />
-            </div>
-          </div>
-
-          <div className="bg-slate-950/70 border border-slate-800/90 rounded-xl p-3 divide-y divide-slate-900/60 max-h-[680px] overflow-y-auto">
-            {allLines
-              .map((text, idx) => ({ lineIndex: idx, lineNumber: idx + 1, text }))
-              .filter((item) => {
-                if (!lineSearchQuery.trim()) return true;
-                const q = lineSearchQuery.toLowerCase().trim();
-                return (
-                  item.text.toLowerCase().includes(q) ||
-                  `l${item.lineNumber}` === q
-                );
-              })
-              .map((lineObj) => renderInteractiveLineRow(lineObj))}
-          </div>
-        </div>
-      )}
-
-      {/* MODE 3: Raw Markdown Source Editor */}
+      {/* Raw Markdown Source Editor */}
       {docMode === 'raw' && (
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-base font-semibold text-white flex items-center gap-2">
                 <Code className="w-5 h-5 text-emerald-400" />
-                <span>Full Document Markdown Source Editor</span>
+                <span>Markdown Source Editor</span>
               </h2>
               <p className="text-xs text-slate-400 mt-0.5">
-                Edit any part of the raw Markdown file directly and click Apply to synchronize sections, tasks, and diagrams.
+                Edit the raw Markdown directly and click Apply to synchronize sections, tasks, and diagrams.
               </p>
             </div>
-            <button
-              onClick={() => {
-                if (rawMarkdownDraft !== planState.rawMarkdown) {
-                  applyMarkdownUpdate(rawMarkdownDraft, 'Updated markdown document in Raw Source Editor');
-                }
-                setDocMode('structured');
-              }}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white shadow transition"
-            >
-              <Check className="w-4 h-4" />
-              <span>Apply Markdown Changes</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setDocMode('structured')}
+                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-300 border border-slate-700 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (rawMarkdownDraft !== planState.rawMarkdown) {
+                    applyMarkdownUpdate(rawMarkdownDraft, 'Updated markdown document in Raw Source Editor');
+                  }
+                  setDocMode('structured');
+                }}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white shadow transition"
+              >
+                <Check className="w-4 h-4" />
+                <span>Apply Changes</span>
+              </button>
+            </div>
           </div>
           <textarea
             value={rawMarkdownDraft}
@@ -782,7 +735,7 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
         </div>
       )}
 
-      {/* MODE 1: Structured Plan & Interactive Section / Line Editor */}
+      {/* Structured Plan & Interactive Section Editor */}
       {docMode === 'structured' && (
         <>
           {/* 1. Execution Target: Rich HTML Card with inline edit toggle */}
@@ -795,13 +748,26 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
                 <span>Execution Target & Architectural Scope</span>
               </div>
 
-              <button
-                onClick={handleToggleGoalEdit}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 transition"
-              >
-                {isEditingGoal ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Edit3 className="w-3.5 h-3.5" />}
-                <span>{isEditingGoal ? 'Done Editing' : 'Edit Target'}</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setRawMarkdownDraft(planState.rawMarkdown);
+                    setDocMode('raw');
+                  }}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-slate-400 hover:text-white bg-slate-800/60 hover:bg-slate-800 border border-slate-700/70 transition"
+                  title="Edit full raw Markdown source"
+                >
+                  <Code className="w-3.5 h-3.5" />
+                  <span>Raw Markdown</span>
+                </button>
+                <button
+                  onClick={handleToggleGoalEdit}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 transition"
+                >
+                  {isEditingGoal ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Edit3 className="w-3.5 h-3.5" />}
+                  <span>{isEditingGoal ? 'Done Editing' : 'Edit Target'}</span>
+                </button>
+              </div>
             </div>
 
             {isEditingGoal ? (
@@ -1146,216 +1112,166 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
             </div>
           )}
 
-          {/* 4. Interactive Markdown Sections & Inline Line/Section Editor */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-5">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <BookOpen className="w-5 h-5 text-teal-400" />
-                <h2 className="text-base font-semibold text-white">
-                  Document Sections & Inline Editor
-                </h2>
-                <span className="text-xs px-2.5 py-0.5 rounded-full bg-teal-500/10 text-teal-300 font-mono border border-teal-500/20">
-                  {displayedIndexedSections.length} Sections
-                </span>
-              </div>
+          {/* 4. Supplementary Specifications & Design Notes */}
+          {(displayedIndexedSections.length > 0 || isAddingSection) && (
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <BookOpen className="w-5 h-5 text-teal-400" />
+                  <h2 className="text-base font-semibold text-white">
+                    Specifications & Design Notes
+                  </h2>
+                </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setShowAllSectionsInStructured((prev) => !prev)}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition ${
-                    showAllSectionsInStructured
-                      ? 'bg-teal-500/20 text-teal-300 border-teal-500/40'
-                      : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-white'
-                  }`}
-                >
-                  {showAllSectionsInStructured
-                    ? `Showing All Sections (${indexedSections.length})`
-                    : `Show All Document Sections (${indexedSections.length})`}
-                </button>
                 <button
                   onClick={() => setIsAddingSection(true)}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 transition"
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>Add Section</span>
                 </button>
               </div>
-            </div>
 
-            <p className="text-xs text-slate-400">
-              Edit any section as a block or toggle <strong>Line-by-Line Edit</strong> on any section card to click and edit individual lines inline.
-            </p>
-
-            {/* Add New Section Inline Form */}
-            {isAddingSection && (
-              <div className="bg-slate-950 border border-emerald-500/50 rounded-xl p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-emerald-400 uppercase tracking-wider">
-                    New Markdown Section
-                  </span>
-                  <button
-                    onClick={() => setIsAddingSection(false)}
-                    className="text-xs text-slate-400 hover:text-white"
-                  >
-                    Cancel
-                  </button>
+              {/* Add New Section Inline Form */}
+              {isAddingSection && (
+                <div className="bg-slate-950 border border-emerald-500/50 rounded-xl p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-emerald-400 uppercase tracking-wider">
+                      New Section
+                    </span>
+                    <button
+                      onClick={() => setIsAddingSection(false)}
+                      className="text-xs text-slate-400 hover:text-white"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    value={newSectionHeading}
+                    onChange={(e) => setNewSectionHeading(e.target.value)}
+                    placeholder="Section Heading (e.g. Security Considerations)"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm font-semibold text-white focus:outline-none focus:border-emerald-500"
+                    autoFocus
+                  />
+                  <textarea
+                    value={newSectionContent}
+                    onChange={(e) => setNewSectionContent(e.target.value)}
+                    rows={4}
+                    placeholder="Write markdown content, bullet points, or tables..."
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-xs font-mono text-slate-200 focus:outline-none focus:border-emerald-500"
+                  />
+                  <div className="flex justify-end gap-2">
+                    <button
+                      onClick={() => setIsAddingSection(false)}
+                      className="px-3 py-1.5 rounded-lg text-xs text-slate-400 hover:text-white"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleAddNewSection}
+                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Insert Section</span>
+                    </button>
+                  </div>
                 </div>
-                <input
-                  type="text"
-                  value={newSectionHeading}
-                  onChange={(e) => setNewSectionHeading(e.target.value)}
-                  placeholder="Section Heading (e.g. Security Considerations)"
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm font-semibold text-white focus:outline-none focus:border-emerald-500"
-                  autoFocus
-                />
-                <textarea
-                  value={newSectionContent}
-                  onChange={(e) => setNewSectionContent(e.target.value)}
-                  rows={4}
-                  placeholder="Write markdown content, bullet points, or tables..."
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-xs font-mono text-slate-200 focus:outline-none focus:border-emerald-500"
-                />
-                <div className="flex justify-end gap-2">
-                  <button
-                    onClick={() => setIsAddingSection(false)}
-                    className="px-3 py-1.5 rounded-lg text-xs text-slate-400 hover:text-white"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleAddNewSection}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white"
-                  >
-                    <Check className="w-3.5 h-3.5" />
-                    <span>Insert Section</span>
-                  </button>
-                </div>
-              </div>
-            )}
+              )}
 
-            <div className="space-y-4">
-              {displayedIndexedSections.map((sec) => {
-                const isEditingFullSection = editingSectionIndex === sec.index;
-                const isLineEditOn = Boolean(lineEditModeSections[sec.index]);
-                const cleaned = sec.content
-                  .replace(/```mermaid[\s\S]*?```/gi, '')
-                  .replace(/^\s*---+\s*$/gm, '')
-                  .trim();
+              <div className="space-y-4">
+                {displayedIndexedSections.map((sec) => {
+                  const isEditingFullSection = editingSectionIndex === sec.index;
+                  const cleaned = sec.content
+                    .replace(/\\`\\`\\`mermaid[\s\S]*?\\`\\`\\`/gi, '')
+                    .replace(/```mermaid[\s\S]*?```/gi, '')
+                    .replace(/^\s*---+\s*$/gm, '')
+                    .trim();
 
-                return (
-                  <div
-                    key={sec.index}
-                    className="bg-slate-950/55 border border-slate-800/90 rounded-xl p-4 space-y-3 hover:border-slate-700/80 transition"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/70 pb-2.5">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-900 text-slate-400 border border-slate-800">
-                          H{sec.level} · L{(sec.headerLineIndex ?? sec.startLineIndex) + 1}
-                        </span>
+                  return (
+                    <div
+                      key={sec.index}
+                      className="group bg-slate-950/50 border border-slate-800/80 rounded-xl p-4 space-y-3 hover:border-slate-700/80 transition"
+                    >
+                      <div className="flex items-center justify-between gap-2">
                         <h3 className="text-xs font-bold uppercase tracking-wider text-teal-400">
                           <InlineMarkdown content={sec.heading} />
                         </h3>
-                      </div>
 
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={() =>
-                            setLineEditModeSections((prev) => ({
-                              ...prev,
-                              [sec.index]: !prev[sec.index],
-                            }))
-                          }
-                          className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium border transition ${
-                            isLineEditOn
-                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                              : 'bg-slate-900 text-slate-300 border-slate-800 hover:text-white'
-                          }`}
-                          title="Toggle inline click-to-edit on every line in this section"
-                        >
-                          <AlignLeft className="w-3 h-3" />
-                          <span>{isLineEditOn ? 'Line Edit Active' : 'Edit Lines Inline'}</span>
-                        </button>
+                        <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition">
+                          {isEditingFullSection ? (
+                            <button
+                              onClick={() => saveSectionEdit(sec)}
+                              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition"
+                            >
+                              <Check className="w-3 h-3" />
+                              <span>Save</span>
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => startEditingSection(sec)}
+                              className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-medium bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 transition"
+                            >
+                              <Edit3 className="w-3 h-3" />
+                              <span>Edit</span>
+                            </button>
+                          )}
 
-                        {isEditingFullSection ? (
                           <button
-                            onClick={() => saveSectionEdit(sec)}
-                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition"
+                            onClick={() => deleteSection(sec)}
+                            className="p-1 rounded-lg text-slate-500 hover:text-rose-400 transition"
+                            title="Delete section"
                           >
-                            <Check className="w-3 h-3" />
-                            <span>Save Section</span>
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => startEditingSection(sec)}
-                            className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 transition"
-                          >
-                            <Edit3 className="w-3 h-3" />
-                            <span>Edit Section</span>
-                          </button>
-                        )}
-
-                        <button
-                          onClick={() => deleteSection(sec)}
-                          className="p-1 rounded-lg text-slate-500 hover:text-rose-400 transition"
-                          title="Delete section"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-
-                    {isEditingFullSection ? (
-                      <div className="space-y-2.5 pt-1">
-                        <input
-                          type="text"
-                          value={sectionHeadingDraft}
-                          onChange={(e) => setSectionHeadingDraft(e.target.value)}
-                          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-bold text-white focus:outline-none focus:border-emerald-500"
-                          placeholder="Section Heading"
-                        />
-                        <textarea
-                          value={sectionContentDraft}
-                          onChange={(e) => setSectionContentDraft(e.target.value)}
-                          rows={Math.max(4, Math.min(16, sec.lines.length + 2))}
-                          className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-xs font-mono text-slate-200 focus:outline-none focus:border-emerald-500 resize-y leading-relaxed"
-                        />
-                        <div className="flex justify-end gap-2">
-                          <button
-                            onClick={() => setEditingSectionIndex(null)}
-                            className="px-2.5 py-1 rounded-lg text-xs text-slate-400 hover:text-white"
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            onClick={() => saveSectionEdit(sec)}
-                            className="flex items-center gap-1 px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white"
-                          >
-                            <Check className="w-3.5 h-3.5" />
-                            <span>Save Section</span>
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       </div>
-                    ) : isLineEditOn ? (
-                      <div className="divide-y divide-slate-900/50 bg-slate-950/80 rounded-lg p-2 border border-slate-800/70">
-                        {sec.lines.map((lineObj) =>
-                          renderInteractiveLineRow(lineObj, sec.heading)
-                        )}
-                      </div>
-                    ) : (
-                      <div
-                        onDoubleClick={() =>
-                          setLineEditModeSections((prev) => ({ ...prev, [sec.index]: true }))
-                        }
-                        title="Double-click to edit individual lines, or click 'Edit Lines Inline' / 'Edit Section'"
-                      >
-                        <BlockMarkdown content={cleaned || sec.content} />
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+
+                      {isEditingFullSection ? (
+                        <div className="space-y-2.5 pt-1">
+                          <input
+                            type="text"
+                            value={sectionHeadingDraft}
+                            onChange={(e) => setSectionHeadingDraft(e.target.value)}
+                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-bold text-white focus:outline-none focus:border-emerald-500"
+                            placeholder="Section Heading"
+                          />
+                          <textarea
+                            value={sectionContentDraft}
+                            onChange={(e) => setSectionContentDraft(e.target.value)}
+                            rows={Math.max(4, Math.min(16, sec.lines.length + 2))}
+                            className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-xs font-mono text-slate-200 focus:outline-none focus:border-emerald-500 resize-y leading-relaxed"
+                          />
+                          <div className="flex justify-end gap-2">
+                            <button
+                              onClick={() => setEditingSectionIndex(null)}
+                              className="px-2.5 py-1 rounded-lg text-xs text-slate-400 hover:text-white"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              onClick={() => saveSectionEdit(sec)}
+                              className="flex items-center gap-1 px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                              <span>Save Section</span>
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div
+                          onDoubleClick={() => startEditingSection(sec)}
+                          title="Double-click or click Edit to modify section"
+                        >
+                          <BlockMarkdown content={cleaned || sec.content} />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          )}
         </>
       )}
 
