@@ -543,7 +543,7 @@ function parseErDiagram(raw: string, lines: string[], diagramId: string): Parsed
   };
 }
 
-function cleanMermaidLabel(rawLabel: string): string {
+export function cleanMermaidLabel(rawLabel: string): string {
   return rawLabel
     .trim()
     .replace(/^\["|"\]$/g, '')

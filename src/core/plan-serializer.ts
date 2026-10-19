@@ -1,5 +1,6 @@
 import { PlanState, PlanDiff, ReviewResult } from './types.js';
 import { serializeToMermaid, computeDiagramDiff, parseMermaid } from './mermaid-graph-bridge.js';
+import { patchMermaid, diagramsEqual } from './mermaid-patch.js';
 
 export function serializePlanMarkdown(state: PlanState): string {
   let markdown = state.rawMarkdown;
@@ -15,7 +16,9 @@ export function serializePlanMarkdown(state: PlanState): string {
   if (state.goal?.description) {
     const goalHeadingRegex = /^(#{1,3}\s+(?:Goal|Overview|Description)[^\n]*\n)([\s\S]*?)(?=\n#{1,3}\s+|$)/im;
     if (goalHeadingRegex.test(markdown)) {
-      markdown = markdown.replace(goalHeadingRegex, `$1${state.goal.description.trim()}\n`);
+      markdown = markdown.replace(goalHeadingRegex, (whole: string, head: string, body: string) =>
+        body.trim() === state.goal.description.trim() ? whole : `${head}${state.goal.description.trim()}\n`
+      );
     }
   }
 
@@ -38,9 +41,13 @@ export function serializePlanMarkdown(state: PlanState): string {
       // Regenerating from the parsed graph is lossy (e.g. drops alt/else/opt
       // blocks), so leave the block untouched unless the user changed it.
       const original = parseMermaid(String(rawCode), diagram.id);
-      if (computeDiagramDiff(original, diagram).length === 0) return match;
-      const updatedMermaid = serializeToMermaid(diagram);
-      return `\`\`\`mermaid\n${updatedMermaid}\n\`\`\``;
+      if (diagramsEqual(original, diagram)) return match;
+      // Patch only the changed lines of the original source so subgraphs,
+      // alt/else blocks, notes, styling and comments survive. Regenerating the
+      // whole diagram is the last resort.
+      const patched = patchMermaid(String(rawCode), original, diagram);
+      const updatedMermaid = patched ?? serializeToMermaid(diagram);
+      return `\`\`\`mermaid\n${updatedMermaid.replace(/\s+$/, '')}\n\`\`\``;
     }
     return match;
   });
