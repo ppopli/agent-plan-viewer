@@ -1,6 +1,7 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { PlanState, PlanTask } from '../../core/types.js';
-import { parsePlanMarkdown } from '../../core/plan-parser.js';
+import { parsePlanMarkdown, toggleTaskWithCascade } from '../../core/plan-parser.js';
+import { serializePlanMarkdown } from '../../core/plan-serializer.js';
 import {
   CheckSquare,
   Square,
@@ -386,24 +387,34 @@ export const DocumentView: React.FC<DocumentViewProps> = ({
     }
   };
 
-  // Handle task checkbox toggle
+  // Handle task checkbox toggle (with hierarchical downward cascade to nested subtasks & upward parent sync)
   const toggleTask = (taskId: string) => {
-    const targetTask = planState.tasks.find((t) => t.id === taskId);
+    const {
+      tasks: nextTasks,
+      targetTask,
+      newStatus,
+      cascadedCount,
+    } = toggleTaskWithCascade(planState.tasks, taskId);
     if (!targetTask) return;
 
-    const newStatus = !targetTask.completed;
-    const nextTasks = planState.tasks.map((t) =>
-      t.id === taskId ? { ...t, completed: newStatus } : t
-    );
-
+    const cascadeSuffix =
+      cascadedCount > 0
+        ? ` (and ${cascadedCount} nested subtask${cascadedCount > 1 ? 's' : ''})`
+        : '';
     const logMsg = newStatus
-      ? `Completed task: "${targetTask.title}"`
-      : `Re-opened task: "${targetTask.title}"`;
+      ? `Completed task: "${targetTask.title}"${cascadeSuffix}`
+      : `Re-opened task: "${targetTask.title}"${cascadeSuffix}`;
 
     const updatedInstructions = appendAutoInstruction(logMsg);
+    const syncedRaw = serializePlanMarkdown({
+      ...planState,
+      tasks: nextTasks,
+      userInstructions: '',
+    });
 
     onStateChange({
       ...planState,
+      rawMarkdown: syncedRaw,
       tasks: nextTasks,
       userInstructions: updatedInstructions,
     });

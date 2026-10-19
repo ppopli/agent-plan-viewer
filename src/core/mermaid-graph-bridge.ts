@@ -17,116 +17,315 @@ export function inferNodeType(id: string, label: string, shape?: string): NodeTy
   return 'service';
 }
 
-export function buildDefaultScenarios(nodes: DiagramNode[], edges: DiagramEdge[], steps: FlowStep[]): FlowScenario[] {
+export function classifyScenarioType(text: string): 'success' | 'failure' | 'edge_case' {
+  if (
+    /fail|error|timeout|reject|invalid|unauthorized|forbidden|401|403|404|409|422|429|500|502|503|504|crash|down|drop|dlq|dead[- ]letter|rollback|abort|circuit[- ]breaker/i.test(
+      text
+    )
+  ) {
+    return 'failure';
+  }
+  if (
+    /edge[- ]case|spike|miss|fallback|retry|degrad|throttl|backpressure|stale|idempoten|slow|race|partial|evict/i.test(
+      text
+    )
+  ) {
+    return 'edge_case';
+  }
+  return 'success';
+}
+
+export function buildDefaultScenarios(
+  nodes: DiagramNode[],
+  edges: DiagramEdge[],
+  steps: FlowStep[]
+): FlowScenario[] {
   if (steps.length === 0) {
     return [];
   }
 
-  const touchedAll = Array.from(new Set(steps.flatMap(s => [s.source, s.target])));
+  const normalizedSteps: FlowStep[] = steps.map((s, idx) => {
+    const isErrorEdge = /fail|error|reject|timeout|401|403|404|429|500|502|503|504|dlq|invalid/i.test(
+      s.label
+    );
+    return {
+      ...s,
+      stepNumber: idx + 1,
+      status: isErrorEdge ? ('failure' as const) : (s.status || ('success' as const)),
+    };
+  });
 
-  const successScenario: FlowScenario = {
-    id: 'scen-success',
-    name: 'Happy Path: Standard Request Flow',
-    type: 'success',
-    description: 'Complete end-to-end execution where all components succeed.',
-    steps: steps.map(s => ({ ...s, status: 'success' })),
-    touchedComponents: touchedAll,
-  };
+  const touchedAll = Array.from(new Set(normalizedSteps.flatMap((s) => [s.source, s.target])));
+  const hasFailureStep = normalizedSteps.some((s) => s.status === 'failure');
 
-  // Failure Scenario 1: Downstream Service/DB Failure
-  const failSteps: FlowStep[] = [];
-  const midPoint = Math.floor(steps.length / 2);
-  for (let i = 0; i < steps.length; i++) {
-    if (i < midPoint) {
-      failSteps.push({ ...steps[i], status: 'success' });
-    } else if (i === midPoint) {
-      failSteps.push({
-        ...steps[i],
-        label: `FAILURE: ${steps[i].label} (500 Error / Timeout)`,
-        response: '{"status": 500, "error": "Connection Timeout / Resource Locked"}',
-        status: 'failure',
-      });
-      break; // Stops here
+  return [
+    {
+      id: 'scen-primary-flow',
+      name: 'Primary Diagram Flow',
+      type: hasFailureStep ? 'failure' : 'success',
+      description: `Step-by-step execution path defined by the diagram (${normalizedSteps.length} hop${
+        normalizedSteps.length === 1 ? '' : 's'
+      } across ${touchedAll.length} component${touchedAll.length === 1 ? '' : 's'}).`,
+      steps: normalizedSteps,
+      touchedComponents: touchedAll,
+    },
+  ];
+}
+
+function buildStepsForPlanScenario(
+  name: string,
+  description: string,
+  scenType: 'success' | 'failure' | 'edge_case',
+  diagram: ParsedDiagram
+): FlowStep[] {
+  const baseSteps = diagram.flowSteps;
+  if (baseSteps.length === 0) return [];
+
+  const combinedText = `${name} ${description}`;
+  const lowerText = combinedText.toLowerCase();
+
+  // Check if explicit arrow sequence is written in the scenario text, e.g. "Client -> Gateway -> Auth"
+  const arrowParts = combinedText.split(/\s*(?:->|-->|=>|→)\s*/);
+  if (arrowParts.length >= 2) {
+    const matchedNodes: DiagramNode[] = [];
+    for (const part of arrowParts) {
+      const cleanPart = part.replace(/[`*_]/g, '').trim().toLowerCase();
+      const found = diagram.nodes.find(
+        (n) =>
+          cleanPart.includes(n.id.toLowerCase()) ||
+          cleanPart.includes(n.label.replace(/\n/g, ' ').toLowerCase()) ||
+          n.label.replace(/\n/g, ' ').toLowerCase().includes(cleanPart)
+      );
+      if (found && (matchedNodes.length === 0 || matchedNodes[matchedNodes.length - 1].id !== found.id)) {
+        matchedNodes.push(found);
+      }
+    }
+    if (matchedNodes.length >= 2) {
+      const customSteps: FlowStep[] = [];
+      for (let i = 0; i < matchedNodes.length - 1; i++) {
+        const src = matchedNodes[i];
+        const tgt = matchedNodes[i + 1];
+        const isLastHop = i === matchedNodes.length - 2;
+        const existingEdge = diagram.edges.find(
+          (e) => e.source === src.id && e.target === tgt.id
+        );
+        const stepStatus: 'success' | 'failure' =
+          scenType === 'failure' && isLastHop ? 'failure' : 'success';
+        customSteps.push({
+          stepNumber: i + 1,
+          source: src.id,
+          target: tgt.id,
+          label:
+            isLastHop && scenType !== 'success'
+              ? `${name}: ${existingEdge?.label || description.slice(0, 80)}`
+              : existingEdge?.label || `Call ${tgt.label.replace(/\n/g, ' ')}`,
+          payload: `{"from": "${src.id}", "to": "${tgt.id}", "scenario": "${name}"}`,
+          response:
+            stepStatus === 'failure'
+              ? `{"status": "ERROR", "scenario": "${name}", "detail": "${description
+                  .replace(/"/g, "'")
+                  .slice(0, 80)}"}`
+              : `{"status": 200, "ok": true}`,
+          status: stepStatus,
+        });
+      }
+      return customSteps;
     }
   }
 
-  const downstreamFailScenario: FlowScenario = {
-    id: 'scen-downstream-fail',
-    name: 'Failure: Downstream Timeout & Rollback',
-    type: 'failure',
-    description: 'Simulates connection timeout at downstream layer and circuit breaker trigger.',
-    steps: failSteps,
-    touchedComponents: Array.from(new Set(failSteps.flatMap(s => [s.source, s.target]))),
-  };
+  // Otherwise find diagram nodes referenced in the scenario text
+  const mentionedNodes = diagram.nodes.filter((n) => {
+    const idLower = n.id.toLowerCase();
+    const labelFlat = n.label.replace(/\n/g, ' ').toLowerCase();
+    const firstWord = labelFlat.split(/\s+/)[0];
+    return (
+      (idLower.length >= 2 && lowerText.includes(idLower)) ||
+      lowerText.includes(labelFlat) ||
+      (firstWord.length >= 4 && lowerText.includes(firstWord))
+    );
+  });
 
-  // Failure Scenario 2: Gateway Auth / Validation Failure
-  const authFailSteps: FlowStep[] = steps.slice(0, 1).map(s => ({
+  if (scenType === 'failure') {
+    // Find the step where the mentioned failing component is target or source
+    let failIdx = -1;
+    if (mentionedNodes.length > 0) {
+      const targetNodeIds = new Set(mentionedNodes.map((n) => n.id));
+      for (let i = 0; i < baseSteps.length; i++) {
+        if (targetNodeIds.has(baseSteps[i].target) || targetNodeIds.has(baseSteps[i].source)) {
+          failIdx = i;
+        }
+      }
+    }
+    if (failIdx === -1) {
+      failIdx = Math.max(0, Math.min(baseSteps.length - 1, Math.floor(baseSteps.length / 2)));
+    }
+
+    const statusMatch = combinedText.match(/\b(400|401|403|404|409|422|429|500|502|503|504)\b/);
+    const statusCode = statusMatch ? Number(statusMatch[1]) : 500;
+
+    return baseSteps.slice(0, failIdx + 1).map((s, idx) => {
+      if (idx === failIdx) {
+        return {
+          ...s,
+          stepNumber: idx + 1,
+          label: `${name}: ${description.slice(0, 90)}`,
+          response: `{"status": ${statusCode}, "error": "${name.replace(/"/g, "'")}", "detail": "${description
+            .replace(/"/g, "'")
+            .slice(0, 80)}"}`,
+          status: 'failure' as const,
+        };
+      }
+      return { ...s, stepNumber: idx + 1, status: 'success' as const };
+    });
+  }
+
+  // For edge_case or success scenarios defined in the plan
+  if (mentionedNodes.length > 0) {
+    const mentionedSet = new Set(mentionedNodes.map((n) => n.id));
+    let highlightIdx = baseSteps.findIndex(
+      (s) => mentionedSet.has(s.target) || mentionedSet.has(s.source)
+    );
+    if (highlightIdx === -1) highlightIdx = 0;
+
+    return baseSteps.map((s, idx) => {
+      if (idx === highlightIdx) {
+        return {
+          ...s,
+          stepNumber: idx + 1,
+          label: `${name}: ${s.label}`,
+          response: `{"status": 200, "scenario": "${name.replace(/"/g, "'")}", "note": "${description
+            .replace(/"/g, "'")
+            .slice(0, 80)}"}`,
+          status: 'success' as const,
+        };
+      }
+      return { ...s, stepNumber: idx + 1, status: 'success' as const };
+    });
+  }
+
+  return baseSteps.map((s, idx) => ({
     ...s,
-    label: 'REJECTED: 401 Unauthorized / Token Expired at Gateway',
-    response: '{"status": 401, "error": "Invalid Token"}',
-    status: 'failure' as const,
+    stepNumber: idx + 1,
+    status: 'success' as const,
   }));
+}
 
-  const authFailScenario: FlowScenario = {
-    id: 'scen-auth-fail',
-    name: 'Failure: Unauthorized / Invalid Token',
-    type: 'failure',
-    description: 'Request rejected at entry gateway before reaching internal microservices.',
-    steps: authFailSteps,
-    touchedComponents: Array.from(new Set(authFailSteps.flatMap(s => [s.source, s.target]))),
-  };
+/**
+ * Extracts scenarios explicitly written in the Plan Markdown (headings, bullet lists, or tables)
+ * and binds them to the diagram's nodes and edges.
+ */
+export function extractScenariosFromPlanSections(
+  sections: Array<{ heading: string; level: number; content: string }>,
+  diagram: ParsedDiagram
+): FlowScenario[] {
+  if (!diagram || diagram.edges.length === 0 || diagram.flowSteps.length === 0) {
+    return [];
+  }
 
-  // Scenario 3: Edge Case Cache Spike & Direct DB Fallback
-  const cacheFallbackSteps: FlowStep[] = steps.map((s, idx) => {
-    if (idx === 1) {
-      return {
-        ...s,
-        label: 'CACHE MISS: Redis Cache Spike -> Fallback to PostgreSQL Primary',
-        response: '{"status": 200, "cacheHit": false, "readFrom": "replica_01"}',
-        status: 'success' as const,
-      };
+  const rawExtracted: Array<{ name: string; description: string }> = [];
+  const sectionTriggerRegex =
+    /scenario|request flow|execution flow|flow path|flow simulation|failure mode|error handling|edge case|fault tolerance|walkthrough/i;
+  const headingScenarioRegex =
+    /^(?:scenario\s*\d*|flow\s*\d*|path\s*\d*|happy\s*path|failure(?:\s*mode|\s*case)?|edge\s*case|fallback\s*flow)\s*[:\-–—]\s*(.+)$/i;
+
+  let insideScenarioParentLevel: number | null = null;
+
+  for (const sec of sections) {
+    const h = sec.heading.trim();
+    if (/user feedback & review notes/i.test(h)) continue;
+
+    if (
+      insideScenarioParentLevel !== null &&
+      sec.level <= insideScenarioParentLevel &&
+      !sectionTriggerRegex.test(h)
+    ) {
+      insideScenarioParentLevel = null;
     }
-    return { ...s, status: 'success' as const };
+
+    const directHeadingMatch = h.match(headingScenarioRegex);
+    const isScenarioContainer = sectionTriggerRegex.test(h);
+
+    if (isScenarioContainer && !directHeadingMatch) {
+      insideScenarioParentLevel = sec.level;
+    }
+
+    // 1. Sub-heading directly represents a scenario
+    if (
+      directHeadingMatch ||
+      (insideScenarioParentLevel !== null && sec.level > insideScenarioParentLevel)
+    ) {
+      const cleanedContent = sec.content
+        .replace(/```[\s\S]*?```/g, '')
+        .split('\n')
+        .map((l) => l.replace(/^\s*[-*+]\s+/, '').trim())
+        .filter(Boolean)
+        .join(' ');
+      if (cleanedContent.length > 0) {
+        rawExtracted.push({
+          name: h.replace(/^\d+\.\s*/, '').trim(),
+          description: cleanedContent,
+        });
+        continue;
+      }
+    }
+
+    // 2. Bullet items or table rows inside a Scenario / Flow / Failure Mode / Edge Case section
+    if (isScenarioContainer) {
+      const lines = sec.content.split('\n');
+      for (const line of lines) {
+        const trimmed = line.trim();
+        // Match `- **Scenario Name**: Description` or `1. **Scenario Name** - Description`
+        const bulletMatch = trimmed.match(
+          /^(?:[-*+]|\d+\.)\s+\*\*([^*]+)\*\*\s*[:\-–—]?\s*(.+)$/
+        );
+        if (bulletMatch) {
+          rawExtracted.push({
+            name: bulletMatch[1].trim(),
+            description: bulletMatch[2].trim(),
+          });
+          continue;
+        }
+
+        // Match markdown table row `| Scenario Name | Description | ... |`
+        if (trimmed.startsWith('|') && trimmed.endsWith('|') && !trimmed.includes('---')) {
+          const cells = trimmed
+            .slice(1, -1)
+            .split('|')
+            .map((c) => c.replace(/\*\*/g, '').trim());
+          if (
+            cells.length >= 2 &&
+            cells[0] &&
+            !/^(scenario|flow|mode|case|name|type|step|parameter|metric)$/i.test(cells[0])
+          ) {
+            rawExtracted.push({
+              name: cells[0],
+              description: cells.slice(1).join(' — '),
+            });
+          }
+        }
+      }
+    }
+  }
+
+  if (rawExtracted.length === 0) {
+    return [];
+  }
+
+  const planScenarios: FlowScenario[] = rawExtracted.map((item, idx) => {
+    const scenType = classifyScenarioType(`${item.name} ${item.description}`);
+    const steps = buildStepsForPlanScenario(item.name, item.description, scenType, diagram);
+    const touched = Array.from(new Set(steps.flatMap((s) => [s.source, s.target])));
+    return {
+      id: `scen-plan-${idx + 1}`,
+      name: item.name,
+      type: scenType,
+      description: item.description,
+      steps,
+      touchedComponents: touched,
+    };
   });
 
-  const cacheFallbackScenario: FlowScenario = {
-    id: 'scen-cache-spike',
-    name: 'Edge Case: Cache Spike & DB Fallback',
-    type: 'edge_case',
-    description: 'Cache miss occurs during traffic spike; fallback query routes directly to database read-replica.',
-    steps: cacheFallbackSteps,
-    touchedComponents: touchedAll,
-  };
-
-  // Scenario 4: Queue Backpressure & DLQ
-  const queueFailSteps: FlowStep[] = steps.map((s, idx) => {
-    if (idx === steps.length - 1) {
-      return {
-        ...s,
-        label: 'BACKPRESSURE: Queue Ingestion Rate Limit Exceeded -> Sent to Dead-Letter Queue (DLQ)',
-        response: '{"status": 429, "error": "Queue Full", "routedTo": "orders.dlq"}',
-        status: 'failure' as const,
-      };
-    }
-    return { ...s, status: 'success' as const };
-  });
-
-  const queueFailScenario: FlowScenario = {
-    id: 'scen-queue-backpressure',
-    name: 'Failure: Queue Backpressure & DLQ',
-    type: 'failure',
-    description: 'Event broker reaches capacity threshold, emits 429 rate limit and dispatches to DLQ.',
-    steps: queueFailSteps,
-    touchedComponents: touchedAll,
-  };
-
-  return [
-    successScenario,
-    downstreamFailScenario,
-    authFailScenario,
-    cacheFallbackScenario,
-    queueFailScenario,
-  ];
+  return planScenarios;
 }
 
 /**
@@ -319,6 +518,15 @@ function parseSequenceDiagram(raw: string, lines: string[], diagramId: string): 
   let currentX = 100;
   const participantRegex = /^(?:participant|actor)\s+([a-zA-Z0-9_]+(?:-[a-zA-Z0-9_]+)*)(?:\s+as\s+([^\n]+))?/i;
   const messageRegex = /^([a-zA-Z0-9_]+(?:-[a-zA-Z0-9_]+)*)\s*(-->>|->>|-->|->)\s*([a-zA-Z0-9_]+(?:-[a-zA-Z0-9_]+)*)\s*:\s*([^\n]+)/;
+  const blockStartRegex = /^(alt|opt)\s+(.+)$/i;
+  const blockElseRegex = /^else(?:\s+(.+))?$/i;
+  const blockEndRegex = /^end$/i;
+
+  const prefixSteps: FlowStep[] = [];
+  const suffixSteps: FlowStep[] = [];
+  const altBranches: Array<{ name: string; steps: FlowStep[] }> = [];
+  let activeBranch: { name: string; steps: FlowStep[] } | null = null;
+  let afterBlock = false;
 
   for (const line of lines) {
     const partMatch = line.match(participantRegex);
@@ -335,6 +543,30 @@ function parseSequenceDiagram(raw: string, lines: string[], diagramId: string): 
         y: 120,
       });
       currentX += 280;
+      continue;
+    }
+
+    const startMatch = line.match(blockStartRegex);
+    if (startMatch) {
+      activeBranch = { name: cleanMermaidLabel(startMatch[2]), steps: [] };
+      altBranches.push(activeBranch);
+      afterBlock = false;
+      continue;
+    }
+
+    const elseMatch = line.match(blockElseRegex);
+    if (elseMatch && activeBranch) {
+      activeBranch = {
+        name: cleanMermaidLabel(elseMatch[1] || `Alternative Path ${altBranches.length + 1}`),
+        steps: [],
+      };
+      altBranches.push(activeBranch);
+      continue;
+    }
+
+    if (blockEndRegex.test(line) && activeBranch) {
+      activeBranch = null;
+      afterBlock = true;
       continue;
     }
 
@@ -379,21 +611,60 @@ function parseSequenceDiagram(raw: string, lines: string[], diagramId: string): 
         animated: true,
       });
 
-      flowSteps.push({
+      const isErrorStep = /fail|error|reject|timeout|401|403|404|429|500|502|503|504|invalid/i.test(
+        label
+      );
+      const stepObj: FlowStep = {
         stepNumber: flowSteps.length + 1,
         source,
         target,
         label,
         payload: `{"request": "${label}"}`,
-        response: arrow.includes('--') ? `{"status": "ACK", "response": "${label}"}` : undefined,
-        status: 'success',
-      });
+        response: arrow.includes('--')
+          ? `{"status": "${isErrorStep ? 'ERROR' : 'ACK'}", "response": "${label}"}`
+          : undefined,
+        status: isErrorStep ? 'failure' : 'success',
+      };
+      flowSteps.push(stepObj);
+
+      if (activeBranch) {
+        activeBranch.steps.push(stepObj);
+      } else if (afterBlock) {
+        suffixSteps.push(stepObj);
+      } else {
+        prefixSteps.push(stepObj);
+      }
     }
   }
 
   const nodes = Array.from(nodeMap.values());
   assignOptimalHandles(nodes, edges);
-  const scenarios = buildDefaultScenarios(nodes, edges, flowSteps);
+
+  let scenarios: FlowScenario[];
+  if (altBranches.length > 0 && altBranches.some((b) => b.steps.length > 0)) {
+    scenarios = altBranches
+      .filter((b) => b.steps.length > 0)
+      .map((branch, idx) => {
+        const combinedSteps = [...prefixSteps, ...branch.steps, ...suffixSteps].map((s, sIdx) => ({
+          ...s,
+          stepNumber: sIdx + 1,
+        }));
+        const scenType = classifyScenarioType(
+          `${branch.name} ${branch.steps.map((s) => s.label).join(' ')}`
+        );
+        const touched = Array.from(new Set(combinedSteps.flatMap((s) => [s.source, s.target])));
+        return {
+          id: `scen-seq-${idx + 1}`,
+          name: branch.name,
+          type: scenType,
+          description: `Sequence diagram branch: ${branch.name} (${combinedSteps.length} steps)`,
+          steps: combinedSteps,
+          touchedComponents: touched,
+        };
+      });
+  } else {
+    scenarios = buildDefaultScenarios(nodes, edges, flowSteps);
+  }
 
   return {
     id: diagramId,

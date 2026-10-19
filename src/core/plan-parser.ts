@@ -1,11 +1,97 @@
 import { PlanState, PlanTask, FileChange, GoalInfo, ParsedDiagram } from './types.js';
-import { parseMermaid } from './mermaid-graph-bridge.js';
+import { parseMermaid, extractScenariosFromPlanSections } from './mermaid-graph-bridge.js';
 
 function cleanTextContent(text: string): string {
   return text
     .replace(/```mermaid[\s\S]*?```/gi, '')
     .replace(/^\s*---+\s*$/gm, '')
     .trim();
+}
+
+function isPhaseHeaderTaskTitle(title: string): boolean {
+  return /^\*\*[^*]+\*\*:?$/.test(title.trim());
+}
+
+/**
+ * Toggles a task's completion status and cascades the state:
+ * 1. Downward cascade: Completing or unchecking a parent task automatically marks all contiguous
+ *    nested subtasks (tasks below it with `indent > targetTask.indent`, or non-phase tasks under a
+ *    bold Phase header task) with the same completion status.
+ * 2. Upward consistency: If all subtasks under a parent task are completed, the parent task is
+ *    marked completed; if any subtask is unchecked, its parent is marked incomplete.
+ */
+export function toggleTaskWithCascade(
+  tasks: PlanTask[],
+  taskId: string
+): {
+  tasks: PlanTask[];
+  targetTask?: PlanTask;
+  newStatus: boolean;
+  cascadedCount: number;
+} {
+  const targetIdx = tasks.findIndex((t) => t.id === taskId);
+  if (targetIdx === -1) {
+    return { tasks, newStatus: false, cascadedCount: 0 };
+  }
+
+  const targetTask = tasks[targetIdx];
+  const newStatus = !targetTask.completed;
+  const nextTasks = tasks.map((t) => ({ ...t }));
+
+  nextTasks[targetIdx].completed = newStatus;
+  let cascadedCount = 0;
+
+  const targetIsPhaseHeader = targetTask.indent === 0 && isPhaseHeaderTaskTitle(targetTask.title);
+
+  // 1. Downward cascade to all nested child/descendant subtasks
+  for (let i = targetIdx + 1; i < nextTasks.length; i++) {
+    const candidate = nextTasks[i];
+    const isChildByIndent = candidate.indent > targetTask.indent;
+    const isChildOfPhaseHeader =
+      targetIsPhaseHeader &&
+      candidate.indent === 0 &&
+      !isPhaseHeaderTaskTitle(candidate.title);
+
+    if (isChildByIndent || isChildOfPhaseHeader) {
+      if (candidate.completed !== newStatus) {
+        cascadedCount++;
+      }
+      candidate.completed = newStatus;
+    } else {
+      break;
+    }
+  }
+
+  // 2. Upward hierarchical consistency (walk bottom-up over parent tasks)
+  for (let i = nextTasks.length - 1; i >= 0; i--) {
+    if (i === targetIdx) continue;
+    const parent = nextTasks[i];
+    const parentIsPhaseHeader = parent.indent === 0 && isPhaseHeaderTaskTitle(parent.title);
+    const children: PlanTask[] = [];
+
+    for (let j = i + 1; j < nextTasks.length; j++) {
+      const cand = nextTasks[j];
+      const isChildByIndent = cand.indent > parent.indent;
+      const isChildOfPhase =
+        parentIsPhaseHeader && cand.indent === 0 && !isPhaseHeaderTaskTitle(cand.title);
+      if (isChildByIndent || isChildOfPhase) {
+        children.push(cand);
+      } else {
+        break;
+      }
+    }
+
+    if (children.length > 0) {
+      parent.completed = children.every((c) => c.completed);
+    }
+  }
+
+  return {
+    tasks: nextTasks,
+    targetTask,
+    newStatus,
+    cascadedCount,
+  };
 }
 
 export function parsePlanMarkdown(markdown: string): PlanState {
@@ -81,13 +167,26 @@ export function parsePlanMarkdown(markdown: string): PlanState {
   let taskCounter = 1;
   const taskRegex = /^(\s*)[-*+]\s+\[([ xX])\]\s+(.*)$/;
   const numberedTaskRegex = /^(\s*)\d+\.\s+\[([ xX])\]\s+(.*)$/;
+  let activePhaseHeaderSeen = false;
 
   for (const line of lines) {
-    let match = line.match(taskRegex) || line.match(numberedTaskRegex);
+    if (/^#{1,6}\s+/.test(line)) {
+      activePhaseHeaderSeen = false;
+    }
+    const match = line.match(taskRegex) || line.match(numberedTaskRegex);
     if (match) {
-      const indent = Math.floor(match[1].length / 2);
+      const normalizedSpaces = match[1].replace(/\t/g, '  ').length;
+      let indent = normalizedSpaces > 0 ? Math.max(1, Math.floor(normalizedSpaces / 2)) : 0;
       const completed = match[2].toLowerCase() === 'x';
       const text = match[3].trim();
+
+      if (indent === 0 && isPhaseHeaderTaskTitle(text)) {
+        activePhaseHeaderSeen = true;
+      } else if (indent === 0 && activePhaseHeaderSeen) {
+        // Subtask listed directly beneath a bold phase header task
+        indent = 1;
+      }
+
       tasks.push({
         id: `task-${taskCounter++}`,
         title: text,
@@ -106,14 +205,23 @@ export function parsePlanMarkdown(markdown: string): PlanState {
       s.heading.toLowerCase().includes('verification')
     );
     for (const sec of taskSections) {
+      let sectionPhaseSeen = false;
       for (const line of sec.content.split('\n')) {
         const bulletMatch = line.match(/^(\s*)[-*+]\s+(.*)$/);
         if (bulletMatch && !bulletMatch[2].startsWith('[')) {
+          const normalizedSpaces = bulletMatch[1].replace(/\t/g, '  ').length;
+          let indent = normalizedSpaces > 0 ? Math.max(1, Math.floor(normalizedSpaces / 2)) : 0;
+          const text = bulletMatch[2].trim();
+          if (indent === 0 && isPhaseHeaderTaskTitle(text)) {
+            sectionPhaseSeen = true;
+          } else if (indent === 0 && sectionPhaseSeen) {
+            indent = 1;
+          }
           tasks.push({
             id: `task-${taskCounter++}`,
-            title: bulletMatch[2].trim(),
+            title: text,
             completed: false,
-            indent: Math.floor(bulletMatch[1].length / 2),
+            indent,
           });
         }
       }
@@ -150,13 +258,23 @@ export function parsePlanMarkdown(markdown: string): PlanState {
     }
   }
 
-  // Extract Mermaid diagram blocks
+  // Extract Mermaid diagram blocks and bind any plan-defined scenarios
   const mermaidRegex = /```mermaid\s*([\s\S]*?)```/g;
   let mermaidMatch;
   let diagCounter = 1;
   while ((mermaidMatch = mermaidRegex.exec(markdown)) !== null) {
     const rawCode = mermaidMatch[1].trim();
     const parsed = parseMermaid(rawCode, `diag-${diagCounter++}`);
+    const planScenarios = extractScenariosFromPlanSections(sections, parsed);
+    if (planScenarios.length > 0) {
+      // If the plan only defined failure/edge_case scenarios, keep the diagram's primary flow first
+      const hasSuccessInPlan = planScenarios.some(s => s.type === 'success');
+      if (!hasSuccessInPlan && parsed.scenarios && parsed.scenarios.length > 0) {
+        parsed.scenarios = [...parsed.scenarios, ...planScenarios];
+      } else {
+        parsed.scenarios = planScenarios;
+      }
+    }
     diagrams.push(parsed);
   }
 

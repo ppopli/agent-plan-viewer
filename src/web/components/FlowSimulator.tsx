@@ -29,6 +29,7 @@ import {
   Search,
 } from 'lucide-react';
 import { PlanState, ParsedDiagram, FlowStep, FlowScenario } from '../../core/types.js';
+import { extractScenariosFromPlanSections } from '../../core/mermaid-graph-bridge.js';
 
 // Custom Animated Node for Simulator
 const SimNode: React.FC<NodeProps> = ({ id, data }) => {
@@ -112,6 +113,18 @@ export const FlowSimulator: React.FC<FlowSimulatorProps> = ({
 
   const scenarios: FlowScenario[] = useMemo(() => {
     if (!diagram || diagram.edges.length === 0) return [];
+
+    // Dynamically extract scenarios defined in the plan markdown sections
+    const planScenarios = extractScenariosFromPlanSections(planState.sections || [], diagram);
+    if (planScenarios.length > 0) {
+      const hasSuccessInPlan = planScenarios.some((s) => s.type === 'success');
+      const baseScenarios = (diagram.scenarios || []).filter((s) => !s.id.startsWith('scen-plan-'));
+      if (!hasSuccessInPlan && baseScenarios.length > 0) {
+        return [...baseScenarios, ...planScenarios];
+      }
+      return planScenarios;
+    }
+
     if (
       diagram.scenarios &&
       diagram.scenarios.length > 0 &&
@@ -122,21 +135,21 @@ export const FlowSimulator: React.FC<FlowSimulatorProps> = ({
     if (!diagram.flowSteps || diagram.flowSteps.length === 0) {
       return [];
     }
-    // Fallback if none exist
     return [
       {
-        id: 'scen-1',
-        name: 'Happy Path',
+        id: 'scen-primary-flow',
+        name: 'Primary Diagram Flow',
         type: 'success',
-        description: 'Standard request flow execution',
+        description: 'Step-by-step execution path defined by the diagram.',
         steps: diagram.flowSteps || [],
         touchedComponents: diagram.nodes.map((n) => n.id),
       },
     ];
-  }, [diagram]);
+  }, [diagram, planState.sections]);
 
   const [activeScenarioIdx, setActiveScenarioIdx] = useState(0);
-  const activeScenario: FlowScenario | undefined = scenarios[activeScenarioIdx];
+  const safeScenarioIdx = activeScenarioIdx < scenarios.length ? activeScenarioIdx : 0;
+  const activeScenario: FlowScenario | undefined = scenarios[safeScenarioIdx];
 
   const [showScenarioDirectory, setShowScenarioDirectory] = useState(false);
   const [scenarioFilter, setScenarioFilter] = useState('');
