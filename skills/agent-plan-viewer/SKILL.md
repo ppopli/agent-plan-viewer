@@ -18,6 +18,10 @@ Instead, launch the interactive visual environment using `agent-plan-viewer` so 
 3. **Universal Markdown Viewer & Inline Line / Section Editor**:
    - Works with **any Markdown (`.md`) file** — even documents without tasks or Mermaid diagrams (e.g., `README.md`, RFCs, system design specs, ADRs).
    - Users can switch between **Structured & Section Editor**, **Line-by-Line Inline Editor (`L1`–`LN`)**, and **Raw Markdown Source**, clicking any section or individual line to edit inline with full Undo/Redo (`⌘Z` / `⌘⇧Z`) and automatic audit logging.
+4. **Hierarchical Task Checklist & Cascade Completion**:
+   - Marking a parent task (or milestone phase header) completed automatically cascades down to complete all nested subtasks. Unchecking or toggling maintains upward hierarchical consistency, automatically synchronizing changes back to raw markdown.
+5. **Plan-Driven Request Flow Simulation**:
+   - Flow scenarios in the Flow Simulator are extracted directly from the plan document (scenario headings, failure mode lists, tables, and Mermaid `alt`/`else` sequence branches) or fallback strictly to the primary diagram flow—eliminating hardcoded scenarios.
 
 ## Prerequisites
 

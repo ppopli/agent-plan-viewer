@@ -31,13 +31,27 @@ export function getSkillContent(): string {
   // Fallback bundled template
   return `---
 name: agent-plan-viewer
-description: Launches an interactive visual plan viewer and editor for the user to review, edit tasks, adjust diagrams, and simulate request flows before plan execution.
+description: Launches an interactive visual plan and markdown viewer/editor for the user to review, edit any line or section inline, manage tasks, adjust diagrams, and simulate request flows before execution.
 ---
 
-# Interactive Plan Review Skill
+# Interactive Plan & Markdown Review Skill
 
-Whenever you formulate or update an implementation plan, **DO NOT merely present raw markdown on the terminal or ask for approval via text.**
-Instead, launch the interactive visual environment using \`agent-plan-viewer\` so the developer can inspect, edit tasks, drag/modify diagrams, and simulate request flows.
+Whenever you formulate or update an implementation plan (or when the user asks to visually inspect/edit any Markdown document), **DO NOT merely present raw markdown on the terminal or ask for approval via text.**
+Instead, launch the interactive visual environment using \`agent-plan-viewer\` so the developer can inspect, edit any line or section inline, toggle/add tasks, drag/modify diagrams, and simulate request flows.
+
+## Key Capabilities & Lifecycle Behavior
+
+1. **Auto-Close on Submit / Approve**:
+   - When the user clicks **"Approve & Submit"** or **"Request Changes"**, the viewer automatically dispatches the structured JSON diff + feedback to the CLI, closes the browser tab, and terminates the local server.
+2. **Live Auto-Reload & Browser Re-Open on File Changes**:
+   - While a viewer session is active, a file watcher monitors the target \`.md\` file on disk. Any external modification to the Markdown document automatically hot-reloads the open browser tab over WebSocket, or automatically re-opens the browser window if all tabs were closed.
+3. **Universal Markdown Viewer & Inline Line / Section Editor**:
+   - Works with **any Markdown (\`.md\`) file** — even documents without tasks or Mermaid diagrams.
+   - Users can switch between **Structured & Section Editor**, **Line-by-Line Inline Editor (\`L1\`–\`LN\`)**, and **Raw Markdown Source**, clicking any section or individual line to edit inline with full Undo/Redo (\`⌘Z\` / \`⌘⇧Z\`) and automatic audit logging.
+4. **Hierarchical Task Checklist & Cascade Completion**:
+   - Marking a parent task (or milestone phase header) completed automatically cascades down to complete all nested subtasks. Unchecking or toggling maintains upward hierarchical consistency, automatically synchronizing changes back to raw markdown.
+5. **Plan-Driven Request Flow Simulation**:
+   - Flow scenarios in the Flow Simulator are extracted directly from the plan document (scenario headings, failure mode lists, tables, and Mermaid \`alt\`/\`else\` sequence branches) or fallback strictly to the primary diagram flow—eliminating hardcoded scenarios.
 
 ## Prerequisites
 
@@ -48,7 +62,7 @@ Before executing this skill, ensure the following requirements are met:
 
 ## Instructions for Agents
 
-### Step 1: Write Your Plan to Disk
+### Step 1: Write or Update Your Plan / Markdown File on Disk
 Write your comprehensive implementation plan or architecture design to a markdown file (e.g., \`./plan.md\`). Include:
 - Execution Goal & Overview
 - Checklist tasks (\`- [ ] ...\`)
@@ -63,12 +77,12 @@ npx agent-plan-viewer review <path-to-plan.md> --json
 \`\`\`
 
 ### Step 3: Wait Synchronously for User Approval
-The command will start a local server, open the developer's browser, and block until the developer explicitly clicks "Approve & Submit" or "Request Changes".
+The command starts a local server, opens the developer's browser, watches the file for live changes, and blocks until the developer explicitly finishes their review in the browser.
 
-### Step 4: Ingest the Output & Proceed
+### Step 4: Ingest the Output & Proceed (or Re-Open on Revision)
 When the command exits with code \`0\`, parse the structured JSON from stdout:
 - **If \`status === "APPROVED"\`**:
-  1. Re-read the updated plan file from disk.
+  1. Re-read the updated plan/markdown file from disk.
   2. Adhere to any \`userInstructions\`.
   3. Proceed with executing the code changes!
 - **If \`status === "CHANGES_REQUESTED"\`**:
