@@ -1,5 +1,5 @@
 import { PlanState, PlanDiff, ReviewResult } from './types.js';
-import { serializeToMermaid, computeDiagramDiff } from './mermaid-graph-bridge.js';
+import { serializeToMermaid, computeDiagramDiff, parseMermaid } from './mermaid-graph-bridge.js';
 
 export function serializePlanMarkdown(state: PlanState): string {
   let markdown = state.rawMarkdown;
@@ -24,7 +24,22 @@ export function serializePlanMarkdown(state: PlanState): string {
   let diagIdx = 0;
   markdown = markdown.replace(mermaidRegex, (match, rawCode) => {
     if (diagIdx < state.diagrams.length) {
-      const updatedMermaid = serializeToMermaid(state.diagrams[diagIdx++]);
+      const diagram = state.diagrams[diagIdx++];
+      // Only flowchart/graph and sequence diagrams are editable in the viewer.
+      // Anything else (erDiagram, classDiagram, ...) can't round-trip through
+      // the graph model, so keep the author's original source verbatim.
+      const firstLine = String(rawCode)
+        .split('\n')
+        .map((l: string) => l.trim())
+        .find((l: string) => l.length > 0 && !l.startsWith('%%'))
+        ?.toLowerCase() || '';
+      const editable = /^(flowchart|graph|sequencediagram)\b/.test(firstLine);
+      if (!editable) return match;
+      // Regenerating from the parsed graph is lossy (e.g. drops alt/else/opt
+      // blocks), so leave the block untouched unless the user changed it.
+      const original = parseMermaid(String(rawCode), diagram.id);
+      if (computeDiagramDiff(original, diagram).length === 0) return match;
+      const updatedMermaid = serializeToMermaid(diagram);
       return `\`\`\`mermaid\n${updatedMermaid}\n\`\`\``;
     }
     return match;
