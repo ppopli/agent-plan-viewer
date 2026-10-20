@@ -81,10 +81,29 @@ npx github:ppopli/agent-plan-viewer install-skill --global
 
 ---
 
+## Diagram Editing & Markdown Preservation
+
+When you edit a Mermaid diagram in the viewer, only the lines you changed are rewritten in your original markdown (`flowchart`/`graph`, `sequenceDiagram`, and `erDiagram`). Everything else in the diagram — `subgraph` groups, `alt` / `else` / `opt` blocks, notes, comments, `style` / `classDef` lines, entity attribute blocks, indentation and line endings — is left byte-for-byte intact:
+
+- **Subgraph-aware placement:** New flowchart nodes join the `subgraph` of the node they connect to, with matching indentation (unconnected nodes are appended at the end).
+- **Order preservation:** Re-ordering edges, sequence messages, participants, or ER relationships is saved by permuting only the statement text across existing line slots without moving surrounding blocks.
+- **Multi-statement lines:** Lines like `A --> B; B --> C` are split only when an edit touches that line, leaving untouched lines intact.
+- **Self-verified patching:** After patching, the result is re-parsed and compared against your edited graph. Diagrams you didn't touch are never rewritten, and a save with no edits leaves the file byte-identical.
+
+### Known Limitations
+
+- **Unsupported diagram types are read-only.** Mermaid types beyond flowcharts, sequence diagrams, and ER diagrams (`classDiagram`, `stateDiagram`, `gantt`, ...) render for review and remain untouched on save, but cannot be edited in the canvas.
+- **Creating new `alt` / `opt` / `loop` blocks or `subgraph` groups** must be done in markdown (existing blocks and messages inside them can be edited in the canvas).
+- **ER entities with attribute blocks** display a compact attribute summary in their node label, so renaming those entity headers must be done in markdown (plain entities without attribute blocks can be renamed in the canvas).
+- **Unconnected new nodes** in a flowchart have no neighbor to infer a `subgraph` from and are appended at the end of the diagram.
+- **Fallback on unpatchable flowchart/sequence edits:** If an edit cannot be patched and verified safely, that diagram falls back to regenerating from the graph model (for `erDiagram`, the original source is kept instead so it never turns into a flowchart).
+
+---
+
 ## Testing
 
 ```bash
-# Run Unit & Integration Tests (20 tests)
+# Run Unit & Integration Tests (87 tests)
 npm test
 
 # Run End-to-End Lifecycle Tests
