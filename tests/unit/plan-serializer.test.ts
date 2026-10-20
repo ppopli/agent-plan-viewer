@@ -210,3 +210,57 @@ flowchart TD
     expect(out).toContain('X["Ex"]');
   });
 });
+
+describe('serializePlanMarkdown: ER diagrams', () => {
+  const erMd = `# T
+
+\`\`\`mermaid
+erDiagram
+    USER ||--o{ PIN : creates
+    PIN {
+        int id
+    }
+\`\`\`
+`;
+
+  it('applies relationship edits to the ER source and keeps it an ER diagram', () => {
+    const out = reserialize((s) => {
+      s.diagrams[0].edges.push({ id: 'e-x', source: 'PIN', target: 'USER', label: 'owned by', style: 'solid' });
+    }, erMd);
+    expect(out).toContain('erDiagram');
+    expect(out).toContain('PIN ||--o{ USER : "owned by"');
+    expect(out).toContain('int id');
+    expect(out).not.toContain('flowchart');
+  });
+
+  it('keeps the original ER source (never a flowchart) when an edit cannot be patched safely', () => {
+    const out = reserialize((s) => {
+      s.diagrams[0].nodes.push({ id: 'bad', label: 'not a valid id!', type: 'database', shape: 'cylinder', x: 0, y: 0 });
+    }, erMd);
+    expect(out).toContain('erDiagram');
+    expect(out).not.toContain('flowchart');
+    expect(out.trim()).toBe(erMd.trim());
+  });
+});
+
+describe('serializePlanMarkdown: former limitations', () => {
+  it('saves re-ordered messages in a sequence diagram', () => {
+    const out = reserialize((s) => {
+      const e = s.diagrams[2].edges;
+      [e[0], e[1]] = [e[1], e[0]];
+    });
+    const lines = out.split('\n').map((l) => l.trim());
+    expect(lines.indexOf('B->>A: fail')).toBeLessThan(lines.indexOf('A->>B: go'));
+    expect(out).toContain('alt bad');
+  });
+
+  it('places a node added next to a subgraph member inside that subgraph', () => {
+    const out = reserialize((s) => {
+      s.diagrams[0].nodes.push({ id: 'Cache', label: 'Redis', type: 'database', shape: 'cylinder', x: 0, y: 0 });
+      s.diagrams[0].edges.push({ id: 'e-cache', source: 'Svc', target: 'Cache', style: 'solid' });
+    });
+    const block = out.match(/```mermaid\n(flowchart[\s\S]*?)```/)![1].split('\n').map((l) => l.trim());
+    expect(block.indexOf('Cache[("Redis")]')).toBeGreaterThan(block.indexOf('subgraph Core["Core"]'));
+    expect(block.indexOf('Cache[("Redis")]')).toBeLessThan(block.indexOf('end'));
+  });
+});
