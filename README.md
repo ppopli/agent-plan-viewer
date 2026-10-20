@@ -4,6 +4,12 @@
 
 Instead of forcing developers to skim long, static markdown plans in terminal windows, **Agent Plan Viewer** renders plans as an interactive web environment with visual diagram manipulation, request flow stepping, explicit save controls, and bidirectional sync back to the waiting agent.
 
+## Demo
+
+[![Agent Plan Viewer Demo](./docs/demo/agent-plan-viewer-demo.gif)](./docs/demo/agent-plan-viewer-demo.mp4)
+
+> 🎬 **[Watch full-resolution MP4 video (1600×900)](./docs/demo/agent-plan-viewer-demo.mp4)** — Interactive task checklists, visual diagram editing, request flow simulation, structured diffs, and surgical Mermaid source patching.
+
 ---
 
 ## Key Features
