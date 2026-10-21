@@ -4,7 +4,7 @@
   "description": "Interactive visual viewer and two-way editor for AI agent implementation plans",
   "main": "dist/cli/index.js",
   "bin": {
-    "agent-plan-viewer": "./bin/cli.js"
+    "agent-plan-viewer": "bin/cli.js"
   },
   "type": "module",
   "files": [
