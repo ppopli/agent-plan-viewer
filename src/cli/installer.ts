@@ -132,8 +132,34 @@ Whenever creating an architecture or implementation plan:
 `;
 
 function defaultExec(cmd: string): string {
+  const cleanEnv: NodeJS.ProcessEnv = { ...process.env };
+  // Strip transient npm/npx environment variables so child `npm install -g` runs cleanly
+  for (const key of Object.keys(cleanEnv)) {
+    if (
+      key.startsWith('npm_config_') ||
+      key.startsWith('npm_lifecycle_') ||
+      key === 'npm_command' ||
+      key === 'npm_package_json' ||
+      key === 'npm_execpath'
+    ) {
+      delete cleanEnv[key];
+    }
+  }
+  // Strip temporary `_npx` cache directories and local `node_modules/.bin` from PATH
+  // so `agent-plan-viewer --version` checks the real system-wide installation.
+  if (cleanEnv.PATH) {
+    cleanEnv.PATH = cleanEnv.PATH
+      .split(path.delimiter)
+      .filter(
+        (segment) =>
+          !segment.includes('_npx') &&
+          !segment.endsWith(`node_modules${path.sep}.bin`)
+      )
+      .join(path.delimiter);
+  }
   return execSync(cmd, {
     encoding: 'utf-8',
+    env: cleanEnv,
     stdio: ['ignore', 'pipe', 'pipe'],
   }).trim();
 }

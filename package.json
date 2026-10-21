@@ -1,6 +1,6 @@
 {
   "name": "agent-plan-viewer",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Interactive visual viewer and two-way editor for AI agent implementation plans",
   "main": "dist/cli/index.js",
   "bin": {

@@ -6,39 +6,39 @@ This guide provides step-by-step instructions for installing and enabling the **
 
 ## ⚡ Single-Command Installation (Fastest)
 
-You can install and register this skill into your project or machine with a **single command**:
+You can install or update both the global `agent-plan-viewer` CLI binary and the agent skill files with a **single command from npm**:
+
+### Global Machine-Wide Installation (Recommended):
+```bash
+npx agent-plan-viewer@latest install-skill --global
+```
+*Installs or updates the `agent-plan-viewer` CLI globally on your system, and installs/updates the skill and rules in `~/.gemini/` (`SKILL.md` + `GEMINI.md`) and `~/.claude/` (`SKILL.md` + `CLAUDE.md`) so all current and future projects can use it.*
 
 ### Workspace Installation (Current Project):
 ```bash
-# Via GitHub directly (zero prior setup)
-npx github:ppopli/agent-plan-viewer install-skill
-
-# Or via npm package
-npx agent-plan-viewer install-skill
+npx agent-plan-viewer@latest install-skill
 ```
-*Auto-detects and installs the skill for all agents present in your workspace (`.agents/skills/`, `.claude/skills/`, and `.cursor/rules/`), and attaches review instructions to `AGENTS.md` / `CLAUDE.md`.*
-
-### Global Machine-Wide Installation:
-```bash
-npx github:ppopli/agent-plan-viewer install-skill --global
-```
-*Installs the skill to `~/.gemini/antigravity-cli/skills/` and `~/.claude/skills/` so all current and future projects can use it.*
+*Installs or updates the global `agent-plan-viewer` CLI binary, installs the skill for all agents in your workspace (`.agents/skills/`, `.claude/skills/`, and `.cursor/rules/`), and updates review instructions in `AGENTS.md` / `CLAUDE.md`.*
 
 ### Target a Specific Agent Only:
 ```bash
 # Only Antigravity (AGY)
-npx agent-plan-viewer install-skill --target agy
+npx agent-plan-viewer@latest install-skill --target agy
 
 # Only Claude Code
-npx agent-plan-viewer install-skill --target claude
+npx agent-plan-viewer@latest install-skill --target claude
 
 # Only Cursor
-npx agent-plan-viewer install-skill --target cursor
+npx agent-plan-viewer@latest install-skill --target cursor
 ```
 
-### Via One-Liner Shell Script (No Prior npm Setup):
+### Via One-Liner Shell Script:
 ```bash
+# Workspace + global CLI install/update
 curl -fsSL https://raw.githubusercontent.com/ppopli/agent-plan-viewer/main/scripts/install-skill.sh | bash
+
+# Global skills/rules + global CLI install/update
+curl -fsSL https://raw.githubusercontent.com/ppopli/agent-plan-viewer/main/scripts/install-skill.sh | bash -s -- --global
 ```
 
 ---
