@@ -7,11 +7,19 @@
     "agent-plan-viewer": "./bin/cli.js"
   },
   "type": "module",
+  "files": [
+    "bin",
+    "dist",
+    "dist-web",
+    "skills",
+    "README.md"
+  ],
   "scripts": {
     "dev:web": "vite",
     "build:web": "vite build",
     "build:cli": "tsc -p tsconfig.cli.json",
     "build": "npm run build:web && npm run build:cli",
+    "prepublishOnly": "npm run build",
     "start": "tsx src/cli/index.ts",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
