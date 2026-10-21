@@ -1,6 +1,6 @@
 {
   "name": "agent-plan-viewer",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Interactive visual viewer and two-way editor for AI agent implementation plans",
   "main": "dist/cli/index.js",
   "bin": {
@@ -12,6 +12,7 @@
     "dist",
     "dist-web",
     "skills",
+    "scripts/install-skill.sh",
     "README.md"
   ],
   "scripts": {

@@ -10,7 +10,7 @@ const program = new Command();
 program
     .name('agent-plan-viewer')
     .description('Interactive visual viewer and editor for AI agent implementation plans')
-    .version('1.0.0');
+    .version('1.0.1');
 program
     .command('review')
     .description('Start interactive review session for an agent plan and block until user submits')
@@ -95,17 +95,19 @@ program
     .command('install-skill')
     .alias('init')
     .alias('add-skill')
-    .description('Install and configure the agent-plan-viewer skill in Antigravity, Claude Code, or Cursor')
+    .description('Install/update global agent-plan-viewer CLI and configure skill files in Antigravity, Claude Code, or Cursor')
     .option('-t, --target <target>', 'Target agent: agy, claude, cursor, or all', 'all')
     .option('-g, --global', 'Install globally to user home directory instead of current workspace')
-    .option('--dry-run', 'Preview files that would be created without writing')
-    .option('--no-rules', 'Do not update rule files (AGENTS.md, CLAUDE.md, .cursorrules)')
+    .option('--dry-run', 'Preview files and CLI actions without writing')
+    .option('--no-rules', 'Do not update rule files (AGENTS.md, CLAUDE.md, .cursorrules, ~/.gemini/GEMINI.md)')
+    .option('--skip-cli', 'Skip installing/updating the global agent-plan-viewer CLI binary')
     .action(async (options) => {
     await installSkill({
         target: options.target,
         global: options.global,
         dryRun: options.dryRun,
         skipRules: options.rules === false,
+        skipCli: options.skipCli,
     });
 });
 program.parse(process.argv);
