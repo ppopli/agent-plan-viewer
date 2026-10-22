@@ -12,13 +12,13 @@ You can install or update both the global `agent-plan-viewer` CLI binary and the
 ```bash
 npx agent-plan-viewer@latest install-skill --global
 ```
-*Installs or updates the `agent-plan-viewer` CLI globally on your system, and installs/updates the skill and rules in `~/.gemini/` (`SKILL.md` + `GEMINI.md`) and `~/.claude/` (`SKILL.md` + `CLAUDE.md`) so all current and future projects can use it.*
+*Installs or updates the `agent-plan-viewer` CLI globally on your system (automatically prompting for `sudo` if your global npm directory requires root permissions), and installs/updates the skill and rules in `~/.gemini/` (`SKILL.md` + `GEMINI.md`) and `~/.claude/` (`SKILL.md` + `CLAUDE.md`) so all current and future projects can use it.*
 
-### Workspace Installation (Current Project):
+### Workspace Installation (Current Project — No `sudo` Required):
 ```bash
 npx agent-plan-viewer@latest install-skill
 ```
-*Installs or updates the global `agent-plan-viewer` CLI binary, installs the skill for all agents in your workspace (`.agents/skills/`, `.claude/skills/`, and `.cursor/rules/`), and updates review instructions in `AGENTS.md` / `CLAUDE.md`.*
+*Installs or updates `agent-plan-viewer` locally in `./node_modules/.bin/agent-plan-viewer` without requiring `sudo`, installs the skill for all agents in your workspace (`.agents/skills/`, `.claude/skills/`, and `.cursor/rules/`), and updates review instructions in `AGENTS.md` / `CLAUDE.md`.*
 
 ### Target a Specific Agent Only:
 ```bash
@@ -34,10 +34,10 @@ npx agent-plan-viewer@latest install-skill --target cursor
 
 ### Via One-Liner Shell Script:
 ```bash
-# Workspace + global CLI install/update
+# Workspace + local CLI install/update (no sudo required)
 curl -fsSL https://raw.githubusercontent.com/ppopli/agent-plan-viewer/main/scripts/install-skill.sh | bash
 
-# Global skills/rules + global CLI install/update
+# Global skills/rules + global CLI install/update (prompts for sudo if needed)
 curl -fsSL https://raw.githubusercontent.com/ppopli/agent-plan-viewer/main/scripts/install-skill.sh | bash -s -- --global
 ```
 

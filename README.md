@@ -48,10 +48,10 @@ Instead of forcing developers to skim long, static markdown plans in terminal wi
 
 ### 1. Install via npm (Recommended)
 ```bash
-# Install global CLI (`agent-plan-viewer`) + configure agent skills & rules globally
+# Global install: installs/updates global CLI (`agent-plan-viewer`, prompts for sudo if needed) + global skills/rules
 npx agent-plan-viewer@latest install-skill --global
 
-# Or install/update into the current project workspace (.agents/skills, .claude/skills, .cursor/rules)
+# Local workspace install (no sudo): installs/updates CLI locally in ./node_modules/.bin/ + workspace skills/rules
 npx agent-plan-viewer@latest install-skill
 
 # Or install only the global CLI binary via npm
@@ -74,26 +74,33 @@ agent-plan-viewer review ./examples/sample-plans/e-commerce-microservices.md --j
 Agent Plan Viewer can be installed or updated across **Google Antigravity (AGY)**, **Claude Code**, **Cursor**, **Codex**, and custom pipelines with a single command from npm:
 
 ```bash
-# Install/update global CLI + workspace skills (.agents/skills, .claude/skills, .cursor/rules, AGENTS.md, CLAUDE.md)
+# Local workspace install (no sudo required):
+# Installs/updates ./node_modules/.bin/agent-plan-viewer + workspace skills (.agents/skills, .claude/skills, .cursor/rules, AGENTS.md, CLAUDE.md)
 npx agent-plan-viewer@latest install-skill
 
-# Or install/update global CLI + machine-wide skills & rules (~/.gemini/GEMINI.md, ~/.claude/CLAUDE.md)
+# Global machine-wide install (prompts for sudo if global npm directory requires root):
+# Installs/updates global `agent-plan-viewer` CLI + machine-wide skills & rules (~/.gemini/GEMINI.md, ~/.claude/CLAUDE.md)
 npx agent-plan-viewer@latest install-skill --global
 ```
 
-Or via the one-liner shell installer (which also installs/updates the global `agent-plan-viewer` CLI and skill files):
+Or via the one-liner shell installer:
 ```bash
+# Global install (prompts for sudo if needed)
 curl -fsSL https://raw.githubusercontent.com/ppopli/agent-plan-viewer/main/scripts/install-skill.sh | bash -s -- --global
+
+# Local workspace install (no sudo required)
+curl -fsSL https://raw.githubusercontent.com/ppopli/agent-plan-viewer/main/scripts/install-skill.sh | bash
 ```
 
 👉 **See the complete installation guide: [`skills/agent-plan-viewer/README.md`](./skills/agent-plan-viewer/README.md)**
 
 ### How It Works:
-1. Run `npx agent-plan-viewer@latest install-skill --global` (or `npx agent-plan-viewer@latest install-skill` in a project). This installs or updates the `agent-plan-viewer` CLI binary globally on your system and configures the agent skill/rule files.
+1. Run `npx agent-plan-viewer@latest install-skill --global` (installs the CLI globally, prompting for `sudo` if your global npm prefix requires root) or `npx agent-plan-viewer@latest install-skill` (installs the CLI locally in `./node_modules/.bin/` without `sudo`) and configures the agent skill/rule files.
 2. When the agent finishes planning, it runs:
    ```bash
    agent-plan-viewer review <path-to-plan.md> --json
    ```
+   *(or `npx agent-plan-viewer review <path-to-plan.md> --json`)*
 3. The agent awaits user approval, parses the returned JSON diff and user instructions, and proceeds autonomously with the approved architecture!
 
 ---
