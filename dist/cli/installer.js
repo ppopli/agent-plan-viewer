@@ -112,9 +112,9 @@ Whenever creating an architecture or implementation plan:
 - Launch the interactive review: \`agent-plan-viewer review plan.md --json\` (or \`npx agent-plan-viewer review plan.md --json\`)
 - Await developer approval in browser and adhere to \`userInstructions\` returned in stdout.
 `;
-function defaultExec(cmd) {
+function defaultExec(cmd, opts) {
     const cleanEnv = { ...process.env };
-    // Strip transient npm/npx environment variables so child `npm install -g` runs cleanly
+    // Strip transient npm/npx environment variables so child `npm install` runs cleanly
     for (const key of Object.keys(cleanEnv)) {
         if (key.startsWith('npm_config_') ||
             key.startsWith('npm_lifecycle_') ||
@@ -133,15 +133,99 @@ function defaultExec(cmd) {
             !segment.endsWith(`node_modules${path.sep}.bin`))
             .join(path.delimiter);
     }
+    if (opts?.interactive) {
+        execSync(cmd, {
+            cwd: opts.cwd,
+            env: cleanEnv,
+            stdio: 'inherit',
+        });
+        return '';
+    }
     return execSync(cmd, {
+        cwd: opts?.cwd,
         encoding: 'utf-8',
         env: cleanEnv,
         stdio: ['ignore', 'pipe', 'pipe'],
     }).trim();
 }
-export function ensureGlobalCliInstalled(options) {
+export function ensureCliInstalled(options) {
     const run = options.execCommand || defaultExec;
+    const isGlobal = Boolean(options.global);
     const isDryRun = Boolean(options.dryRun);
+    const cwd = options.cwd || process.cwd();
+    // =========================================================================
+    // LOCAL WORKSPACE INSTALL (no sudo required)
+    // =========================================================================
+    if (!isGlobal) {
+        let existingVersion = null;
+        const localPkgJsonPath = path.join(cwd, 'node_modules/agent-plan-viewer/package.json');
+        if (fs.existsSync(localPkgJsonPath)) {
+            try {
+                const pkg = JSON.parse(fs.readFileSync(localPkgJsonPath, 'utf-8'));
+                if (pkg && typeof pkg.version === 'string') {
+                    existingVersion = pkg.version;
+                }
+            }
+            catch {
+                existingVersion = null;
+            }
+        }
+        const isInstalled = existingVersion !== null;
+        if (isDryRun) {
+            if (isInstalled) {
+                console.log(chalk.yellow(`  ↻ Local CLI:         Would update ./node_modules/.bin/agent-plan-viewer (currently v${existingVersion})`));
+                return { action: 'updated', scope: 'local', version: existingVersion || undefined };
+            }
+            else {
+                console.log(chalk.green(`  + Local CLI:         Would install agent-plan-viewer locally into ./node_modules/.bin/agent-plan-viewer`));
+                return { action: 'installed', scope: 'local' };
+            }
+        }
+        const localInstallCommands = [
+            'npm install --no-save agent-plan-viewer@latest',
+            'npm install --no-save github:ppopli/agent-plan-viewer',
+        ];
+        let installedOk = false;
+        let lastError = null;
+        for (const cmd of localInstallCommands) {
+            try {
+                run(cmd, { cwd });
+                installedOk = true;
+                break;
+            }
+            catch (err) {
+                lastError = err;
+            }
+        }
+        if (!installedOk) {
+            const msg = lastError instanceof Error ? lastError.message : String(lastError);
+            console.warn(chalk.yellow(`  ⚠ Could not install local CLI automatically (${msg.split('\n')[0]}).`));
+            return { action: 'skipped', scope: 'local' };
+        }
+        let newVersion = existingVersion || 'latest';
+        if (fs.existsSync(localPkgJsonPath)) {
+            try {
+                const pkg = JSON.parse(fs.readFileSync(localPkgJsonPath, 'utf-8'));
+                if (pkg && typeof pkg.version === 'string') {
+                    newVersion = pkg.version;
+                }
+            }
+            catch {
+                // ignore
+            }
+        }
+        if (isInstalled) {
+            console.log(chalk.yellow(`  ↻ Updated local CLI:  ${chalk.white(`./node_modules/.bin/agent-plan-viewer (v${existingVersion} -> v${newVersion})`)}`));
+            return { action: 'updated', scope: 'local', version: newVersion };
+        }
+        else {
+            console.log(chalk.green(`  + Installed local CLI:${chalk.white(` ./node_modules/.bin/agent-plan-viewer (v${newVersion})`)}`));
+            return { action: 'installed', scope: 'local', version: newVersion };
+        }
+    }
+    // =========================================================================
+    // GLOBAL SYSTEM INSTALL (--global: prompts for sudo if permissions require)
+    // =========================================================================
     let existingVersion = null;
     try {
         const out = run('agent-plan-viewer --version');
@@ -156,11 +240,11 @@ export function ensureGlobalCliInstalled(options) {
     if (isDryRun) {
         if (isInstalled) {
             console.log(chalk.yellow(`  ↻ System CLI:        Would update global agent-plan-viewer (currently v${existingVersion})`));
-            return { action: 'updated', version: existingVersion || undefined };
+            return { action: 'updated', scope: 'global', version: existingVersion || undefined };
         }
         else {
-            console.log(chalk.green(`  + System CLI:        Would install agent-plan-viewer globally via npm`));
-            return { action: 'installed' };
+            console.log(chalk.green(`  + System CLI:        Would install agent-plan-viewer globally via npm (with sudo if required)`));
+            return { action: 'installed', scope: 'global' };
         }
     }
     const installCommands = [
@@ -168,7 +252,9 @@ export function ensureGlobalCliInstalled(options) {
         'npm install -g github:ppopli/agent-plan-viewer',
     ];
     let installedOk = false;
+    let usedSudo = false;
     let lastError = null;
+    // 1. Try installing globally without sudo first (works on Homebrew / nvm / fnm / Volta)
     for (const cmd of installCommands) {
         try {
             run(cmd);
@@ -177,12 +263,31 @@ export function ensureGlobalCliInstalled(options) {
         }
         catch (err) {
             lastError = err;
+            const errMsg = err instanceof Error ? err.message : String(err);
+            if (/EACCES|EPERM|permission denied/i.test(errMsg)) {
+                break;
+            }
+        }
+    }
+    // 2. If global install failed due to permissions (or non-writable global prefix), prompt for sudo
+    if (!installedOk && process.platform !== 'win32') {
+        console.log(chalk.yellow('  🔐 Global npm directory requires administrator privileges. Prompting for sudo password...'));
+        for (const cmd of installCommands) {
+            try {
+                run(`sudo ${cmd}`, { interactive: true });
+                installedOk = true;
+                usedSudo = true;
+                break;
+            }
+            catch (err) {
+                lastError = err;
+            }
         }
     }
     if (!installedOk) {
         const msg = lastError instanceof Error ? lastError.message : String(lastError);
-        console.warn(chalk.yellow(`  ⚠ Could not install/update global CLI automatically (${msg.split('\n')[0]}). You may need: sudo npm install -g agent-plan-viewer`));
-        return { action: 'skipped' };
+        console.warn(chalk.yellow(`  ⚠ Could not install/update global CLI automatically (${msg.split('\n')[0]}). Please run: sudo npm install -g agent-plan-viewer`));
+        return { action: 'skipped', scope: 'global' };
     }
     let newVersion = existingVersion || 'latest';
     try {
@@ -195,12 +300,15 @@ export function ensureGlobalCliInstalled(options) {
     }
     if (isInstalled) {
         console.log(chalk.yellow(`  ↻ Updated system CLI: ${chalk.white(`agent-plan-viewer (v${existingVersion} -> v${newVersion})`)}`));
-        return { action: 'updated', version: newVersion };
+        return { action: 'updated', scope: 'global', version: newVersion, usedSudo };
     }
     else {
         console.log(chalk.green(`  + Installed system CLI: ${chalk.white(`agent-plan-viewer (v${newVersion})`)}`));
-        return { action: 'installed', version: newVersion };
+        return { action: 'installed', scope: 'global', version: newVersion, usedSudo };
     }
+}
+export function ensureGlobalCliInstalled(options) {
+    return ensureCliInstalled({ ...options, global: true });
 }
 export async function installSkill(options = {}) {
     const target = options.target || 'all';
@@ -215,10 +323,12 @@ export async function installSkill(options = {}) {
     if (isDryRun) {
         console.log(chalk.yellow('🔍 Running in DRY-RUN mode (no files or packages will be modified)\n'));
     }
-    // 0. Install or update the global `agent-plan-viewer` CLI binary
+    // 0. Install or update the CLI binary (globally with sudo fallback if --global, else locally in cwd)
     if (!skipCli) {
-        ensureGlobalCliInstalled({
+        ensureCliInstalled({
+            global: isGlobal,
             dryRun: isDryRun,
+            cwd,
             execCommand: options.execCommand,
         });
     }

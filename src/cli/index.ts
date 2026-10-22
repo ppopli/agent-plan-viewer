@@ -13,7 +13,7 @@ const program = new Command();
 program
   .name('agent-plan-viewer')
   .description('Interactive visual viewer and editor for AI agent implementation plans')
-  .version('1.0.2');
+  .version('1.0.3');
 
 program
   .command('review')

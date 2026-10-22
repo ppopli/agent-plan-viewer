@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { installSkill, ensureGlobalCliInstalled } from '../../src/cli/installer.js';
+import { installSkill, ensureCliInstalled, ensureGlobalCliInstalled, ExecOptions } from '../../src/cli/installer.js';
 
 describe('CLI & Skill Installer / Updater', () => {
   let tmpDir: string;
@@ -21,7 +21,7 @@ describe('CLI & Skill Installer / Updater', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('installs global CLI when agent-plan-viewer is not yet installed', () => {
+  it('installs global CLI when --global is used and agent-plan-viewer is not yet installed', () => {
     const executed: string[] = [];
     let installed = false;
 
@@ -32,7 +32,7 @@ describe('CLI & Skill Installer / Updater', () => {
           if (!installed) {
             throw new Error('command not found: agent-plan-viewer');
           }
-          return '1.0.1';
+          return '1.0.3';
         }
         if (cmd.startsWith('npm install -g')) {
           installed = true;
@@ -43,11 +43,41 @@ describe('CLI & Skill Installer / Updater', () => {
     });
 
     expect(res.action).toBe('installed');
-    expect(res.version).toBe('1.0.1');
+    expect(res.version).toBe('1.0.3');
+    expect(res.usedSudo).toBe(false);
     expect(executed).toContain('npm install -g agent-plan-viewer@latest');
   });
 
-  it('updates global CLI when agent-plan-viewer is already installed', () => {
+  it('prompts for sudo interactively when global install encounters EACCES permission error', () => {
+    const executed: Array<{ cmd: string; opts?: ExecOptions }> = [];
+    let installed = false;
+
+    const res = ensureCliInstalled({
+      global: true,
+      execCommand: (cmd: string, opts?: ExecOptions) => {
+        executed.push({ cmd, opts });
+        if (cmd === 'agent-plan-viewer --version') {
+          if (!installed) throw new Error('not found');
+          return '1.0.3';
+        }
+        if (cmd === 'npm install -g agent-plan-viewer@latest') {
+          throw new Error('npm error code EACCES: permission denied, access /usr/local/lib/node_modules');
+        }
+        if (cmd === 'sudo npm install -g agent-plan-viewer@latest') {
+          installed = true;
+          return '';
+        }
+        return '';
+      },
+    });
+
+    expect(res.action).toBe('installed');
+    expect(res.scope).toBe('global');
+    expect(res.usedSudo).toBe(true);
+    expect(executed.some((e) => e.cmd === 'sudo npm install -g agent-plan-viewer@latest' && e.opts?.interactive === true)).toBe(true);
+  });
+
+  it('updates global CLI when agent-plan-viewer is already installed globally', () => {
     const executed: string[] = [];
     let version = '1.0.0';
 
@@ -58,7 +88,7 @@ describe('CLI & Skill Installer / Updater', () => {
           return version;
         }
         if (cmd === 'npm install -g agent-plan-viewer@latest') {
-          version = '1.0.1';
+          version = '1.0.3';
           return '';
         }
         return '';
@@ -66,46 +96,57 @@ describe('CLI & Skill Installer / Updater', () => {
     });
 
     expect(res.action).toBe('updated');
-    expect(res.version).toBe('1.0.1');
+    expect(res.version).toBe('1.0.3');
     expect(executed).toContain('npm install -g agent-plan-viewer@latest');
   });
 
-  it('falls back to GitHub global install if npm registry fails', () => {
-    const executed: string[] = [];
-    let installed = false;
+  it('installs and updates CLI locally in workspace (without -g or sudo) when --global is not set', () => {
+    const executed: Array<{ cmd: string; opts?: ExecOptions }> = [];
+    const localPkgDir = path.join(fakeCwd, 'node_modules/agent-plan-viewer');
+    const localPkgPath = path.join(localPkgDir, 'package.json');
 
-    const res = ensureGlobalCliInstalled({
-      execCommand: (cmd: string) => {
-        executed.push(cmd);
-        if (cmd === 'agent-plan-viewer --version') {
-          if (!installed) throw new Error('not found');
-          return '1.0.1';
-        }
-        if (cmd === 'npm install -g agent-plan-viewer@latest') {
-          throw new Error('E404 Not Found');
-        }
-        if (cmd === 'npm install -g github:ppopli/agent-plan-viewer') {
-          installed = true;
-          return '';
+    // 1. Fresh local install
+    const resInstall = ensureCliInstalled({
+      global: false,
+      cwd: fakeCwd,
+      execCommand: (cmd: string, opts?: ExecOptions) => {
+        executed.push({ cmd, opts });
+        if (cmd === 'npm install --no-save agent-plan-viewer@latest') {
+          fs.mkdirSync(localPkgDir, { recursive: true });
+          fs.writeFileSync(localPkgPath, JSON.stringify({ name: 'agent-plan-viewer', version: '1.0.2' }), 'utf-8');
         }
         return '';
       },
     });
 
-    expect(res.action).toBe('installed');
-    expect(executed).toEqual([
-      'agent-plan-viewer --version',
-      'npm install -g agent-plan-viewer@latest',
-      'npm install -g github:ppopli/agent-plan-viewer',
-      'agent-plan-viewer --version',
-    ]);
+    expect(resInstall.action).toBe('installed');
+    expect(resInstall.scope).toBe('local');
+    expect(resInstall.version).toBe('1.0.2');
+    expect(executed.every((e) => !e.cmd.includes('-g') && !e.cmd.includes('sudo'))).toBe(true);
+
+    // 2. Local update when already present
+    const resUpdate = ensureCliInstalled({
+      global: false,
+      cwd: fakeCwd,
+      execCommand: (cmd: string, opts?: ExecOptions) => {
+        executed.push({ cmd, opts });
+        if (cmd === 'npm install --no-save agent-plan-viewer@latest') {
+          fs.writeFileSync(localPkgPath, JSON.stringify({ name: 'agent-plan-viewer', version: '1.0.3' }), 'utf-8');
+        }
+        return '';
+      },
+    });
+
+    expect(resUpdate.action).toBe('updated');
+    expect(resUpdate.scope).toBe('local');
+    expect(resUpdate.version).toBe('1.0.3');
   });
 
   it('installs workspace skill and rule files when missing, and updates them when already present', async () => {
     const commands: string[] = [];
     const mockExec = (cmd: string) => {
       commands.push(cmd);
-      return '1.0.0';
+      return '1.0.3';
     };
 
     // 1. Fresh workspace install
@@ -126,6 +167,7 @@ describe('CLI & Skill Installer / Updater', () => {
     expect(fs.existsSync(cursorMdcPath)).toBe(true);
     expect(fs.existsSync(agentsMdPath)).toBe(true);
     expect(fs.existsSync(claudeMdPath)).toBe(true);
+    expect(commands).toContain('npm install --no-save agent-plan-viewer@latest');
 
     // Modify existing skill & AGENTS.md to simulate outdated version + custom surrounding rules
     fs.writeFileSync(agySkillPath, '# Outdated Skill', 'utf-8');
@@ -155,7 +197,7 @@ describe('CLI & Skill Installer / Updater', () => {
       global: true,
       cwd: fakeCwd,
       homeDir: fakeHome,
-      execCommand: () => '1.0.0',
+      execCommand: () => '1.0.3',
     });
 
     expect(fs.existsSync(path.join(fakeHome, '.gemini/antigravity-cli/skills/agent-plan-viewer/SKILL.md'))).toBe(true);
