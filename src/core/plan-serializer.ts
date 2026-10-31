@@ -53,7 +53,11 @@ export function serializePlanMarkdown(state: PlanState): string {
       const original = parseMermaid(sourceCode, diagram.id);
       const sameStructure = diagramsEqual(original, diagram);
       const sameLayout = diagramsLayoutEqual(original, diagram);
-      if (sameStructure && sameLayout) return match;
+      if (sameStructure && sameLayout) {
+        return String(rawCode).trim() === sourceCode.trim()
+          ? match
+          : `\`\`\`mermaid\n${sourceCode.replace(/^\r?\n+|\s+$/g, '')}\n\`\`\``;
+      }
 
       if (sameStructure) {
         const withLayout = upsertLayoutMetadataComment(sourceCode, diagram);
