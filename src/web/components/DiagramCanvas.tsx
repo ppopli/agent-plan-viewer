@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { PlanState, ParsedDiagram, DiagramNode, DiagramEdge, NodeType } from '../../core/types.js';
 import { autoLayout, serializeToMermaid, rebuildDiagramFlows } from '../../core/mermaid-graph-bridge.js';
+import { serializePlanMarkdown } from '../../core/plan-serializer.js';
 import { appendAutoInstruction } from '../utils/instructions.js';
 
 // Custom 4-Way Node Component with Handles on all 4 boundaries and delete button
@@ -216,6 +217,29 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
     };
   }, []);
 
+  // Helper to commit diagram updates and keep rawMarkdown synchronized so switching tabs
+  // or editing lines/sections in DocumentView never overwrites canvas diagram changes.
+  const commitDiagramUpdate = useCallback(
+    (nextDiagrams: ParsedDiagram[], updatedInstructions?: string) => {
+      const nextState: PlanState = {
+        ...planState,
+        diagrams: nextDiagrams,
+        userInstructions:
+          updatedInstructions !== undefined ? updatedInstructions : planState.userInstructions,
+      };
+      // Synchronize rawMarkdown with the updated diagrams without duplicating the feedback footer
+      const syncedRawMarkdown = serializePlanMarkdown({
+        ...nextState,
+        userInstructions: undefined,
+      });
+      onStateChange({
+        ...nextState,
+        rawMarkdown: syncedRawMarkdown,
+      });
+    },
+    [planState, onStateChange]
+  );
+
   // Update node label
   const handleNodeLabelChange = useCallback(
     (nodeId: string, newLabel: string) => {
@@ -232,13 +256,9 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
         `Renamed diagram component: "${targetNode.label}" -> "${newLabel}"`,
         planState.userInstructions
       );
-      onStateChange({
-        ...planState,
-        diagrams: nextDiagrams,
-        userInstructions: updatedInstructions,
-      });
+      commitDiagramUpdate(nextDiagrams, updatedInstructions);
     },
-    [diagram, planState, selectedDiagIdx, onStateChange]
+    [diagram, planState, selectedDiagIdx, commitDiagramUpdate]
   );
 
   // Delete node
@@ -260,18 +280,14 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
         `Removed diagram component: "${targetNode?.label || nodeId}" (${targetNode?.type || 'node'})`,
         planState.userInstructions
       );
-      onStateChange({
-        ...planState,
-        diagrams: nextDiagrams,
-        userInstructions: updatedInstructions,
-      });
+      commitDiagramUpdate(nextDiagrams, updatedInstructions);
       setSelectedNodeId(null);
       setSelectedEdgeId((currentEdgeId) => {
         if (!currentEdgeId) return null;
         return nextEdges.some((e) => e.id === currentEdgeId) ? currentEdgeId : null;
       });
     },
-    [diagram, planState, selectedDiagIdx, onStateChange]
+    [diagram, planState, selectedDiagIdx, commitDiagramUpdate]
   );
 
   // Delete selected edge
@@ -291,14 +307,10 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
         `Removed diagram connection: "${srcLabel}" -> "${tgtLabel}"`,
         planState.userInstructions
       );
-      onStateChange({
-        ...planState,
-        diagrams: nextDiagrams,
-        userInstructions: updatedInstructions,
-      });
+      commitDiagramUpdate(nextDiagrams, updatedInstructions);
       setSelectedEdgeId(null);
     },
-    [diagram, planState, selectedDiagIdx, onStateChange]
+    [diagram, planState, selectedDiagIdx, commitDiagramUpdate]
   );
 
   // React Flow nodes
@@ -545,13 +557,9 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
         `Connected diagram: "${srcLabel}" -> "${tgtLabel}"`,
         planState.userInstructions
       );
-      onStateChange({
-        ...planState,
-        diagrams: nextDiagrams,
-        userInstructions: updatedInstructions,
-      });
+      commitDiagramUpdate(nextDiagrams, updatedInstructions);
     },
-    [diagram, planState, selectedDiagIdx, onStateChange]
+    [diagram, planState, selectedDiagIdx, commitDiagramUpdate]
   );
 
   // Reconnect existing edge to a new node / handle
@@ -582,13 +590,9 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
         `Rewired diagram connection to: "${srcLabel}" -> "${tgtLabel}"`,
         planState.userInstructions
       );
-      onStateChange({
-        ...planState,
-        diagrams: nextDiagrams,
-        userInstructions: updatedInstructions,
-      });
+      commitDiagramUpdate(nextDiagrams, updatedInstructions);
     },
-    [diagram, planState, selectedDiagIdx, onStateChange]
+    [diagram, planState, selectedDiagIdx, commitDiagramUpdate]
   );
 
   // Add new component
@@ -610,23 +614,28 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
       type,
       x: 200 + Math.random() * 200,
       y: 200 + Math.random() * 150,
-      shape: type === 'database' ? 'cylinder' : type === 'queue' ? 'subroutine' : 'box',
+      shape:
+        type === 'database'
+          ? 'cylinder'
+          : type === 'queue'
+          ? 'subroutine'
+          : type === 'gateway'
+          ? 'rounded'
+          : type === 'actor'
+          ? 'circle'
+          : 'box',
     };
 
     const nextDiagrams = [...planState.diagrams];
-    nextDiagrams[selectedDiagIdx] = {
+    nextDiagrams[selectedDiagIdx] = rebuildDiagramFlows({
       ...diagram,
       nodes: [...diagram.nodes, newNode],
-    };
+    });
     const updatedInstructions = appendAutoInstruction(
       `Added diagram component: "${newNode.label}" (${newNode.type})`,
       planState.userInstructions
     );
-    onStateChange({
-      ...planState,
-      diagrams: nextDiagrams,
-      userInstructions: updatedInstructions,
-    });
+    commitDiagramUpdate(nextDiagrams, updatedInstructions);
   };
 
   // Run auto layout
@@ -641,11 +650,7 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
       `Applied automated layered layout to architecture diagram`,
       planState.userInstructions
     );
-    onStateChange({
-      ...planState,
-      diagrams: nextDiagrams,
-      userInstructions: updatedInstructions,
-    });
+    commitDiagramUpdate(nextDiagrams, updatedInstructions);
   };
 
   // Initialize a new diagram when plan has no diagrams
@@ -674,11 +679,7 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
       planState.userInstructions
     );
 
-    onStateChange({
-      ...planState,
-      diagrams: [...planState.diagrams, newDiag],
-      userInstructions: updatedInstructions,
-    });
+    commitDiagramUpdate([...planState.diagrams, newDiag], updatedInstructions);
     setSelectedDiagIdx(planState.diagrams.length);
   };
 

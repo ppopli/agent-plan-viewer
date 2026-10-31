@@ -240,8 +240,12 @@ end if
           return;
         }
 
-        this.currentPlanState = planState;
         const serialized = serializePlanMarkdown(planState);
+        const syncedState: PlanState = {
+          ...planState,
+          rawMarkdown: serialized,
+        };
+        this.currentPlanState = syncedState;
 
         // Write to disk
         this.writePlanToDisk(serialized);
@@ -252,7 +256,7 @@ end if
           id: baselineId,
           timestamp: Date.now(),
           label: label || `Draft #${this.baselines.length}`,
-          snapshot: JSON.parse(JSON.stringify(planState)),
+          snapshot: JSON.parse(JSON.stringify(syncedState)),
         };
 
         this.baselines.push(newBaseline);
@@ -293,6 +297,8 @@ end if
         }
 
         const serialized = serializePlanMarkdown(finalState);
+        finalState.rawMarkdown = serialized;
+        this.currentPlanState = finalState;
         this.writePlanToDisk(serialized);
 
         const diff = calculatePlanDiff(this.initialPlanState, finalState);
@@ -330,6 +336,8 @@ end if
         }
 
         const serialized = serializePlanMarkdown(finalState);
+        finalState.rawMarkdown = serialized;
+        this.currentPlanState = finalState;
         this.writePlanToDisk(serialized);
 
         const diff = calculatePlanDiff(this.initialPlanState, finalState);

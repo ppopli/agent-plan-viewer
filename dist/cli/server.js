@@ -216,8 +216,12 @@ end if
                     res.status(400).json({ error: 'planState is required' });
                     return;
                 }
-                this.currentPlanState = planState;
                 const serialized = serializePlanMarkdown(planState);
+                const syncedState = {
+                    ...planState,
+                    rawMarkdown: serialized,
+                };
+                this.currentPlanState = syncedState;
                 // Write to disk
                 this.writePlanToDisk(serialized);
                 // Create baseline checkpoint
@@ -226,7 +230,7 @@ end if
                     id: baselineId,
                     timestamp: Date.now(),
                     label: label || `Draft #${this.baselines.length}`,
-                    snapshot: JSON.parse(JSON.stringify(planState)),
+                    snapshot: JSON.parse(JSON.stringify(syncedState)),
                 };
                 this.baselines.push(newBaseline);
                 // Cap baseline checkpoints at max depth 10
@@ -262,6 +266,8 @@ end if
                     finalState.userInstructions = userInstructions;
                 }
                 const serialized = serializePlanMarkdown(finalState);
+                finalState.rawMarkdown = serialized;
+                this.currentPlanState = finalState;
                 this.writePlanToDisk(serialized);
                 const diff = calculatePlanDiff(this.initialPlanState, finalState);
                 const result = {
@@ -293,6 +299,8 @@ end if
                     finalState.userInstructions = userInstructions;
                 }
                 const serialized = serializePlanMarkdown(finalState);
+                finalState.rawMarkdown = serialized;
+                this.currentPlanState = finalState;
                 this.writePlanToDisk(serialized);
                 const diff = calculatePlanDiff(this.initialPlanState, finalState);
                 const result = {

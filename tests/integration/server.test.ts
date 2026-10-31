@@ -118,4 +118,98 @@ flowchart TD
     expect(res.body.result.diff.tasksAdded).toContain('Task New: Added by Human');
     expect(resolvedResult?.status).toBe('APPROVED');
   });
+
+  it('persists added and modified diagram components to disk and renders them accurately on next view', async () => {
+    const origDiag = server.currentPlanState.diagrams[0];
+    const updatedDiag = {
+      ...origDiag,
+      nodes: [
+        // Rename existing node A
+        { ...origDiag.nodes[0], label: 'Auth Service' },
+        origDiag.nodes[1],
+        // Add new components of each supported type (gateway, queue, database, actor) with custom labels
+        { id: 'node_gw', label: 'Edge Envoy', type: 'gateway' as const, shape: 'rounded' as const, x: 100, y: 100 },
+        { id: 'node_q', label: 'Audit Stream', type: 'queue' as const, shape: 'subroutine' as const, x: 300, y: 200 },
+        { id: 'node_cache', label: 'Session Store', type: 'database' as const, shape: 'cylinder' as const, x: 500, y: 200 },
+        { id: 'node_act', label: 'Admin Operator', type: 'actor' as const, shape: 'circle' as const, x: 50, y: 50 },
+      ],
+      edges: [
+        ...origDiag.edges,
+        { id: 'e-act-gw', source: 'node_act', target: 'node_gw', label: 'HTTPS', style: 'solid' as const },
+        { id: 'e-gw-a', source: 'node_gw', target: 'A', label: 'Forward', style: 'solid' as const },
+        { id: 'e-a-q', source: 'A', target: 'node_q', label: 'Emit Event', style: 'dashed' as const },
+        { id: 'e-a-cache', source: 'A', target: 'node_cache', label: 'Read/Write', style: 'solid' as const },
+      ],
+    };
+
+    const modifiedState = {
+      ...server.currentPlanState,
+      diagrams: [updatedDiag],
+    };
+
+    // 1. Save draft and verify GET /api/plan immediately has synced rawMarkdown
+    const saveRes = await request(server.app)
+      .post('/api/save')
+      .send({ planState: modifiedState, label: 'Added diagram components' });
+    expect(saveRes.status).toBe(200);
+
+    const getAfterSave = await request(server.app).get('/api/plan');
+    expect(getAfterSave.body.state.rawMarkdown).toContain('Auth Service');
+    expect(getAfterSave.body.state.rawMarkdown).toContain('Edge Envoy');
+    expect(getAfterSave.body.state.rawMarkdown).toContain('Audit Stream');
+    expect(getAfterSave.body.state.rawMarkdown).toContain('Session Store');
+
+    // 2. Submit via /api/request-changes and verify diff.diagramChanges
+    const reqChangesRes = await request(server.app)
+      .post('/api/request-changes')
+      .send({
+        planState: modifiedState,
+        userInstructions: 'Update architecture sections for the newly added Edge Envoy and Audit Stream components',
+      });
+    expect(reqChangesRes.status).toBe(200);
+    expect(reqChangesRes.body.result.diff.diagramChanges).toEqual(
+      expect.arrayContaining([
+        "Renamed component 'Service' -> 'Auth Service'",
+        "Added component 'Edge Envoy' (gateway)",
+        "Added component 'Audit Stream' (queue)",
+        "Added component 'Session Store' (database)",
+        "Added component 'Admin Operator' (actor)",
+      ])
+    );
+
+    // 3. Open a brand-new PlanViewerServer on the saved plan file to simulate viewing the plan next time
+    const nextServer = new PlanViewerServer({
+      planPath: testPlanPath,
+      port: 0,
+    });
+    try {
+      const nextPlanRes = await request(nextServer.app).get('/api/plan');
+      expect(nextPlanRes.status).toBe(200);
+      const nextDiag = nextPlanRes.body.state.diagrams[0];
+      expect(nextDiag.nodes.find((n: any) => n.id === 'A')?.label).toBe('Auth Service');
+      expect(nextDiag.nodes.find((n: any) => n.id === 'node_gw')).toMatchObject({
+        label: 'Edge Envoy',
+        type: 'gateway',
+        shape: 'rounded',
+      });
+      expect(nextDiag.nodes.find((n: any) => n.id === 'node_q')).toMatchObject({
+        label: 'Audit Stream',
+        type: 'queue',
+        shape: 'subroutine',
+      });
+      expect(nextDiag.nodes.find((n: any) => n.id === 'node_cache')).toMatchObject({
+        label: 'Session Store',
+        type: 'database',
+        shape: 'cylinder',
+      });
+      expect(nextDiag.nodes.find((n: any) => n.id === 'node_act')).toMatchObject({
+        label: 'Admin Operator',
+        type: 'actor',
+        shape: 'circle',
+      });
+      expect(nextDiag.edges.length).toBe(5);
+    } finally {
+      await nextServer.stop();
+    }
+  });
 });
