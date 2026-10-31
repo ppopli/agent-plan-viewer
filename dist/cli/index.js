@@ -5,12 +5,12 @@ import path from 'path';
 import fs from 'fs';
 import { PlanViewerServer } from './server.js';
 import { formatAgentInstructions } from '../core/plan-serializer.js';
-import { installSkill } from './installer.js';
+import { installSkill, exportSkillBundle } from './installer.js';
 const program = new Command();
 program
     .name('agent-plan-viewer')
     .description('Interactive visual viewer and editor for AI agent implementation plans')
-    .version('1.0.6');
+    .version('1.0.7');
 program
     .command('review')
     .description('Start interactive review session for an agent plan and block until user submits')
@@ -109,5 +109,20 @@ program
         skipRules: options.rules === false,
         skipCli: options.skipCli,
     });
+});
+program
+    .command('export-skill')
+    .description('Export SKILL.md and agent-plan-viewer-skill.zip for uploading to Claude Desktop, ChatGPT, or Gemini')
+    .argument('[output-dir]', 'Output directory for exported skill bundle', '.')
+    .action((outputDirArg) => {
+    const outDir = path.resolve(process.cwd(), outputDirArg);
+    const { zipPath, skillMdPath } = exportSkillBundle(outDir);
+    console.log(chalk.bold.green('\n📦 Exported Skill & Plugin Bundle:\n'));
+    console.log(chalk.green(`  ✓ Claude Desktop / Plugin ZIP: ${chalk.white(zipPath)}`));
+    console.log(chalk.green(`  ✓ Standalone Skill File:       ${chalk.white(skillMdPath)}\n`));
+    console.log(chalk.gray('Upload instructions:'));
+    console.log(chalk.cyan('  • Claude Desktop / Claude.ai: Settings → Capabilities → Skills → Upload agent-plan-viewer-skill.zip'));
+    console.log(chalk.cyan('  • ChatGPT (Custom GPT / Projects): Upload SKILL.md to Project Files or Knowledge'));
+    console.log(chalk.cyan('  • Gemini (Gems / Extensions): Upload SKILL.md to Gem Knowledge or run `gemini extensions install`'));
 });
 program.parse(process.argv);

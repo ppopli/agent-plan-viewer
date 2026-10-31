@@ -1,0 +1,6 @@
+{
+  "name": "agent-plan-viewer",
+  "version": "1.0.7",
+  "description": "Interactive visual viewer, Mermaid diagram editor, and flow simulator for AI agent implementation plans",
+  "contextFileName": "rules/AGENTS.md"
+}

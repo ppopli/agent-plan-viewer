@@ -97,6 +97,19 @@ curl -fsSL https://raw.githubusercontent.com/ppopli/agent-plan-viewer/main/scrip
 
 👉 **See the complete installation guide: [`skills/agent-plan-viewer/README.md`](./skills/agent-plan-viewer/README.md)**
 
+### Desktop Apps (Claude Desktop, ChatGPT, Gemini) & Plugin Installation:
+- **Export Skill File & `.zip` Bundle for Claude Desktop, ChatGPT, and Gemini**:
+  ```bash
+  npx agent-plan-viewer@latest export-skill
+  ```
+  - **Claude Desktop / Claude.ai**: Go to **Settings → Capabilities → Skills → Upload Skill** and upload `agent-plan-viewer-skill.zip` (or add `SKILL.md` to Project Knowledge).
+  - **ChatGPT**: Upload `SKILL.md` into your **Project Files** or **Custom GPT Knowledge**.
+  - **Gemini**: Upload `SKILL.md` into **Gem Knowledge** (or install as a Gemini extension below).
+- **Install as a Native Plugin / Extension**:
+  - **Google Antigravity (AGY) Plugin**: Installed automatically into `.agents/plugins/agent-plan-viewer/` (local) or `~/.gemini/config/plugins/agent-plan-viewer/` (`--global`), or via `agy plugin install https://github.com/ppopli/agent-plan-viewer`.
+  - **Claude Plugin**: Installed automatically into `.claude/plugins/agent-plan-viewer/` or `~/.claude/plugins/agent-plan-viewer/`, or via `/plugin install ppopli/agent-plan-viewer`.
+  - **Gemini Extension**: `gemini extensions install https://github.com/ppopli/agent-plan-viewer`
+
 ### How It Works:
 1. Run `npx agent-plan-viewer@latest install-skill` (user-space install in `~/.local/bin/agent-plan-viewer`, no root permission needed) or `npx agent-plan-viewer@latest install-skill --global` (system-wide install, asks for root `sudo` permission if needed) to install/update the CLI and configure the skill/rule files for **Google Antigravity (AGY)**, **Claude Code**, **OpenAI Codex**, **GitHub Copilot**, **Hermes Agent**, **Cursor**, **Windsurf**, **OpenClaw**, and **Cline**.
 2. When the agent finishes planning, it runs:

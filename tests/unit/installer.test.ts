@@ -234,6 +234,10 @@ describe('CLI & Skill Installer / Updater', () => {
     expect(fs.existsSync(path.join(fakeHome, '.codeium/windsurf/skills/agent-plan-viewer/SKILL.md'))).toBe(true);
     expect(fs.existsSync(path.join(fakeHome, '.openclaw/skills/agent-plan-viewer/SKILL.md'))).toBe(true);
     expect(fs.existsSync(path.join(fakeHome, '.cline/skills/agent-plan-viewer/SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(fakeHome, '.gemini/config/plugins/agent-plan-viewer/plugin.json'))).toBe(true);
+    expect(fs.existsSync(path.join(fakeHome, '.claude/plugins/agent-plan-viewer/.claude-plugin/plugin.json'))).toBe(true);
+    expect(fs.existsSync(path.join(fakeHome, '.agent-plan-viewer/agent-plan-viewer-skill.zip'))).toBe(true);
+    expect(fs.existsSync(path.join(fakeHome, '.agent-plan-viewer/SKILL.md'))).toBe(true);
 
     const geminiMd = fs.readFileSync(path.join(fakeHome, '.gemini/GEMINI.md'), 'utf-8');
     expect(geminiMd).toContain('# Global Rules');

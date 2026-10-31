@@ -219,6 +219,24 @@ npx agent-plan-viewer@latest install-skill --target cline
 
 ---
 
+### H. Desktop Apps (Claude Desktop, ChatGPT, Gemini) & Plugin Installation
+
+1. **Export Uploadable Skill Bundle (`agent-plan-viewer-skill.zip` & `SKILL.md`)**:
+   ```bash
+   npx agent-plan-viewer@latest export-skill
+   ```
+   *(Running `npx agent-plan-viewer@latest install-skill --global` also automatically saves `agent-plan-viewer-skill.zip` and `SKILL.md` in `~/.agent-plan-viewer/`.)*
+   - **Claude Desktop / Claude.ai**: Open **Settings → Capabilities → Skills → Upload Skill** and select `agent-plan-viewer-skill.zip` (or upload `SKILL.md` to a Claude Project).
+   - **ChatGPT (Desktop / Web)**: Upload `SKILL.md` to your **Project Files** or **Custom GPT Knowledge**.
+   - **Gemini (Web / Gems)**: Upload `SKILL.md` into your **Gem Knowledge**.
+
+2. **Install as a Native Plugin / Extension**:
+   - **Google Antigravity (AGY) Plugin**: Automatically installed into `.agents/plugins/agent-plan-viewer/` (local) or `~/.gemini/config/plugins/agent-plan-viewer/` (`--global`), or install via `agy plugin install https://github.com/ppopli/agent-plan-viewer`.
+   - **Claude Plugin (`.claude-plugin/plugin.json`)**: Automatically installed into `.claude/plugins/agent-plan-viewer/` (local) or `~/.claude/plugins/agent-plan-viewer/` (`--global`), or via `/plugin install ppopli/agent-plan-viewer`.
+   - **Gemini CLI Extension (`gemini-extension.json`)**: Install via `gemini extensions install https://github.com/ppopli/agent-plan-viewer`.
+
+---
+
 ## 4. Verifying the Installation
 
 Test that your installation is working properly with the included sample plan:

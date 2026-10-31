@@ -1,0 +1,14 @@
+{
+  "name": "agent-plan-viewer-marketplace",
+  "owner": {
+    "name": "ppopli"
+  },
+  "plugins": [
+    {
+      "name": "agent-plan-viewer",
+      "source": "./",
+      "description": "Interactive visual viewer, Mermaid diagram editor, and flow simulator for AI agent implementation plans",
+      "version": "1.0.7"
+    }
+  ]
+}

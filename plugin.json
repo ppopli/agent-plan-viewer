@@ -1,0 +1,18 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "agent-plan-viewer",
+  "displayName": "Agent Plan Viewer",
+  "version": "1.0.7",
+  "description": "Interactive visual viewer, Mermaid diagram editor, and flow simulator for AI agent implementation plans",
+  "repository": "https://github.com/ppopli/agent-plan-viewer",
+  "license": "MIT",
+  "keywords": [
+    "plan",
+    "viewer",
+    "mermaid",
+    "diagram",
+    "architecture",
+    "review",
+    "interactive"
+  ]
+}

@@ -1,6 +1,6 @@
 {
   "name": "agent-plan-viewer",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "Interactive visual viewer and two-way editor for AI agent implementation plans",
   "main": "dist/cli/index.js",
   "bin": {
@@ -12,6 +12,10 @@
     "dist",
     "dist-web",
     "skills",
+    "rules",
+    "plugin.json",
+    ".claude-plugin",
+    "gemini-extension.json",
     "scripts/install-skill.sh",
     "README.md"
   ],

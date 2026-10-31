@@ -711,11 +711,203 @@ export async function installSkill(options: InstallSkillOptions = {}): Promise<v
     }
   }
 
+  // 9. Bundled Agent Plugins (Antigravity Plugin, Claude Plugin, Gemini Extension)
+  if (target === 'all' || target === 'agy' || target === 'claude') {
+    const pluginManifest = JSON.stringify(
+      {
+        $schema: 'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json',
+        name: 'agent-plan-viewer',
+        displayName: 'Agent Plan Viewer',
+        version: '1.0.7',
+        description:
+          'Interactive visual viewer, Mermaid diagram editor, and flow simulator for AI agent implementation plans',
+        repository: 'https://github.com/ppopli/agent-plan-viewer',
+        license: 'MIT',
+      },
+      null,
+      2
+    );
+
+    const pluginRoots: Array<{ dir: string; label: string }> = [];
+    if (target === 'all' || target === 'agy') {
+      pluginRoots.push({
+        dir: isGlobal
+          ? path.join(homeDir, '.gemini/config/plugins/agent-plan-viewer')
+          : path.join(cwd, '.agents/plugins/agent-plan-viewer'),
+        label: 'Antigravity plugin',
+      });
+    }
+    if (target === 'all' || target === 'claude') {
+      pluginRoots.push({
+        dir: isGlobal
+          ? path.join(homeDir, '.claude/plugins/agent-plan-viewer')
+          : path.join(cwd, '.claude/plugins/agent-plan-viewer'),
+        label: 'Claude plugin',
+      });
+    }
+
+    for (const { dir: pluginDir, label } of pluginRoots) {
+      if (!isDryRun) {
+        fs.mkdirSync(path.join(pluginDir, '.claude-plugin'), { recursive: true });
+        fs.mkdirSync(path.join(pluginDir, 'rules'), { recursive: true });
+        fs.mkdirSync(path.join(pluginDir, 'skills/agent-plan-viewer'), { recursive: true });
+        fs.writeFileSync(path.join(pluginDir, '.claude-plugin/plugin.json'), `${pluginManifest}\n`, 'utf-8');
+        fs.writeFileSync(path.join(pluginDir, 'rules/AGENTS.md'), `${AGENT_RULE_TEXT.trim()}\n`, 'utf-8');
+        fs.writeFileSync(
+          path.join(pluginDir, 'skills/agent-plan-viewer/SKILL.md'),
+          skillContent,
+          'utf-8'
+        );
+      }
+      installSkillPath(path.join(pluginDir, 'plugin.json'), `${pluginManifest}\n`, label);
+    }
+  }
+
+  // 10. Desktop / Web Upload Bundle (Claude Desktop .zip skill, ChatGPT & Gemini SKILL.md)
+  if (target === 'all' || target === 'claude' || target === 'agy' || target === 'codex') {
+    const bundleDir = isGlobal
+      ? path.join(homeDir, '.agent-plan-viewer')
+      : path.join(cwd, '.agent-plan-viewer');
+    const zipPath = path.join(bundleDir, 'agent-plan-viewer-skill.zip');
+    const existedZip = fs.existsSync(zipPath);
+    if (!isDryRun) {
+      exportSkillBundle(bundleDir, skillContent);
+    }
+    const paddedLabel = 'Desktop skill zip:'.padEnd(20, ' ');
+    if (existedZip) {
+      console.log(chalk.yellow(`  ↻ Updated ${paddedLabel}${chalk.white(zipPath)}`));
+    } else {
+      console.log(chalk.green(`  + Created ${paddedLabel}${chalk.white(zipPath)}`));
+    }
+  }
+
   console.log(chalk.bold.green('\n🎉 Installation & update complete!'));
   console.log(chalk.gray('Agents and users can now launch the interactive plan viewer directly via:'));
   console.log(chalk.cyan('   agent-plan-viewer review <plan.md> --json'));
   console.log(chalk.gray('or via npx:'));
   console.log(chalk.cyan('   npx agent-plan-viewer review <plan.md> --json\n'));
+}
+
+function crc32Buffer(buf: Buffer): number {
+  let crc = 0xffffffff;
+  for (let i = 0; i < buf.length; i++) {
+    crc ^= buf[i];
+    for (let j = 0; j < 8; j++) {
+      crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+export function createZipArchive(entries: Array<{ name: string; content: Buffer }>): Buffer {
+  const localFileHeaders: Buffer[] = [];
+  const centralDirectoryHeaders: Buffer[] = [];
+  let offset = 0;
+
+  for (const entry of entries) {
+    const nameBuf = Buffer.from(entry.name, 'utf-8');
+    const dataBuf = entry.content;
+    const crc = crc32Buffer(dataBuf);
+
+    // Local file header (30 bytes + name + data)
+    const localHeader = Buffer.alloc(30);
+    localHeader.writeUInt32LE(0x04034b50, 0); // signature
+    localHeader.writeUInt16LE(20, 4); // version needed
+    localHeader.writeUInt16LE(0, 6); // flags
+    localHeader.writeUInt16LE(0, 8); // compression (0 = store)
+    localHeader.writeUInt16LE(0, 10); // mod time
+    localHeader.writeUInt16LE(0x21, 12); // mod date
+    localHeader.writeUInt32LE(crc, 14);
+    localHeader.writeUInt32LE(dataBuf.length, 18);
+    localHeader.writeUInt32LE(dataBuf.length, 22);
+    localHeader.writeUInt16LE(nameBuf.length, 26);
+    localHeader.writeUInt16LE(0, 28); // extra len
+
+    localFileHeaders.push(localHeader, nameBuf, dataBuf);
+
+    // Central directory file header (46 bytes + name)
+    const centralHeader = Buffer.alloc(46);
+    centralHeader.writeUInt32LE(0x02014b50, 0); // signature
+    centralHeader.writeUInt16LE(20, 4); // version made by
+    centralHeader.writeUInt16LE(20, 6); // version needed
+    centralHeader.writeUInt16LE(0, 8); // flags
+    centralHeader.writeUInt16LE(0, 10); // compression
+    centralHeader.writeUInt16LE(0, 12); // mod time
+    centralHeader.writeUInt16LE(0x21, 14); // mod date
+    centralHeader.writeUInt32LE(crc, 16);
+    centralHeader.writeUInt32LE(dataBuf.length, 20);
+    centralHeader.writeUInt32LE(dataBuf.length, 24);
+    centralHeader.writeUInt16LE(nameBuf.length, 28);
+    centralHeader.writeUInt16LE(0, 30); // extra len
+    centralHeader.writeUInt16LE(0, 32); // comment len
+    centralHeader.writeUInt16LE(0, 34); // disk number
+    centralHeader.writeUInt16LE(0, 36); // internal attrs
+    centralHeader.writeUInt32LE(0, 38); // external attrs
+    centralHeader.writeUInt32LE(offset, 42); // local header offset
+
+    centralDirectoryHeaders.push(centralHeader, nameBuf);
+    offset += 30 + nameBuf.length + dataBuf.length;
+  }
+
+  const centralDirBuf = Buffer.concat(centralDirectoryHeaders);
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0); // EOCD signature
+  eocd.writeUInt16LE(0, 4); // disk number
+  eocd.writeUInt16LE(0, 6); // central dir start disk
+  eocd.writeUInt16LE(entries.length, 8);
+  eocd.writeUInt16LE(entries.length, 10);
+  eocd.writeUInt32LE(centralDirBuf.length, 12);
+  eocd.writeUInt32LE(offset, 16);
+  eocd.writeUInt16LE(0, 20); // comment len
+
+  return Buffer.concat([...localFileHeaders, centralDirBuf, eocd]);
+}
+
+export function exportSkillBundle(
+  outputDir: string,
+  skillContent: string = getSkillContent()
+): { zipPath: string; skillMdPath: string } {
+  fs.mkdirSync(outputDir, { recursive: true });
+  const skillMdPath = path.join(outputDir, 'SKILL.md');
+  fs.writeFileSync(skillMdPath, skillContent, 'utf-8');
+
+  const pluginJson = JSON.stringify(
+    {
+      $schema: 'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json',
+      name: 'agent-plan-viewer',
+      displayName: 'Agent Plan Viewer',
+      version: '1.0.7',
+      description:
+        'Interactive visual viewer, Mermaid diagram editor, and flow simulator for AI agent implementation plans',
+      repository: 'https://github.com/ppopli/agent-plan-viewer',
+      license: 'MIT',
+    },
+    null,
+    2
+  );
+
+  const zipBuf = createZipArchive([
+    {
+      name: 'agent-plan-viewer/SKILL.md',
+      content: Buffer.from(skillContent, 'utf-8'),
+    },
+    {
+      name: 'agent-plan-viewer/plugin.json',
+      content: Buffer.from(`${pluginJson}\n`, 'utf-8'),
+    },
+    {
+      name: 'agent-plan-viewer/.claude-plugin/plugin.json',
+      content: Buffer.from(`${pluginJson}\n`, 'utf-8'),
+    },
+    {
+      name: 'agent-plan-viewer/rules/AGENTS.md',
+      content: Buffer.from(`${AGENT_RULE_TEXT.trim()}\n`, 'utf-8'),
+    },
+  ]);
+
+  const zipPath = path.join(outputDir, 'agent-plan-viewer-skill.zip');
+  fs.writeFileSync(zipPath, zipBuf);
+  return { zipPath, skillMdPath };
 }
 
 function upsertSkillFile(targetFile: string, content: string, label: string, isDryRun: boolean): void {
