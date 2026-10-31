@@ -5,7 +5,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/ppopli/agent-plan-viewer/main/scripts/install-skill.sh | bash
 #   curl -fsSL https://raw.githubusercontent.com/ppopli/agent-plan-viewer/main/scripts/install-skill.sh | bash -s -- --global
 # Or locally:
-#   ./scripts/install-skill.sh [--global] [--target agy|claude|cursor|all] [--dry-run]
+#   ./scripts/install-skill.sh [--global] [--target agy|claude|codex|copilot|hermes|cursor|windsurf|openclaw|cline|all] [--dry-run]
 # ==============================================================================
 
 set -e
@@ -33,7 +33,7 @@ while [ $# -gt 0 ]; do
       NO_RULES=true
       shift
       ;;
-    all|agy|claude|cursor)
+    all|agy|claude|codex|copilot|hermes|cursor|windsurf|openclaw|cline)
       TARGET="$1"
       shift
       ;;

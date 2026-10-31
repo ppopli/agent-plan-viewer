@@ -1,6 +1,6 @@
 # Agent Plan Viewer ⚡
 
-> An interactive visual viewer and two-way editor for AI agent implementation plans, supporting **Google Antigravity (AGY)**, **Claude Code**, **OpenAI Codex**, and **Cursor**.
+> An interactive visual viewer and two-way editor for AI agent implementation plans, supporting **Google Antigravity (AGY)**, **Claude Code**, **OpenAI Codex**, **GitHub Copilot**, **Hermes Agent**, **Cursor**, **Windsurf**, **OpenClaw**, and **Cline**.
 
 Instead of forcing developers to skim long, static markdown plans in terminal windows, **Agent Plan Viewer** renders plans as an interactive web environment with visual diagram manipulation, request flow stepping, explicit save controls, and bidirectional sync back to the waiting agent.
 
@@ -39,7 +39,7 @@ Instead of forcing developers to skim long, static markdown plans in terminal wi
    - **No Autosave on Movement**: Plans on disk are never modified during editing until the user explicitly hits **"Save Draft"** or **"Approve & Submit"**.
 
 5. **Agent Skill & Blocking Review Protocol**:
-   - Packaged as an **Agent Skill (`skills/agent-plan-viewer/SKILL.md`)** compatible with Claude Code, Cursor, Codex, and Antigravity.
+   - Packaged as an **Agent Skill (`skills/agent-plan-viewer/SKILL.md`)** compatible with **Google Antigravity (AGY)**, **Claude Code**, **OpenAI Codex**, **GitHub Copilot**, **Hermes Agent**, **Cursor**, **Windsurf**, **OpenClaw**, and **Cline**.
    - Blocks agent execution until the human user resolves the review session in the browser, returning structured approval status, diffs, and instructions to `stdout`.
 
 ---
@@ -74,15 +74,15 @@ agent-plan-viewer review ./examples/sample-plans/e-commerce-microservices.md --j
 
 ## Agent Integration (Skill)
 
-Agent Plan Viewer supports **Google Antigravity (AGY)**, **Claude Code**, **OpenAI Codex**, and **Cursor**:
+Agent Plan Viewer supports **Google Antigravity (AGY)**, **Claude Code**, **OpenAI Codex**, **GitHub Copilot**, **Hermes Agent**, **Cursor**, **Windsurf**, **OpenClaw**, and **Cline**:
 
 ```bash
 # Local (user-space) install — no root/sudo permission required:
-# Installs/updates ~/.local/bin/agent-plan-viewer + workspace skills (.agents/skills, .claude/skills, .cursor/rules, AGENTS.md, CLAUDE.md)
+# Installs/updates ~/.local/bin/agent-plan-viewer + workspace skills (.agents/skills, .claude/skills, .codex/skills, .github/skills, .hermes/skills, .cursor/skills, .windsurf/skills, .cline/skills)
 npx agent-plan-viewer@latest install-skill
 
 # Global (system-wide) install — asks for root (sudo) permission when required:
-# Installs/updates system-wide `agent-plan-viewer` CLI + machine-wide skills & rules (~/.gemini/GEMINI.md, ~/.claude/CLAUDE.md)
+# Installs/updates system-wide `agent-plan-viewer` CLI + machine-wide skills & rules (~/.gemini/, ~/.claude/, ~/.codex/, ~/.copilot/, ~/.hermes/, ~/.cursor/, ~/.codeium/windsurf/, ~/.openclaw/, ~/.cline/)
 npx agent-plan-viewer@latest install-skill --global
 ```
 
@@ -98,7 +98,7 @@ curl -fsSL https://raw.githubusercontent.com/ppopli/agent-plan-viewer/main/scrip
 👉 **See the complete installation guide: [`skills/agent-plan-viewer/README.md`](./skills/agent-plan-viewer/README.md)**
 
 ### How It Works:
-1. Run `npx agent-plan-viewer@latest install-skill` (user-space install in `~/.local/bin/agent-plan-viewer`, no root permission needed) or `npx agent-plan-viewer@latest install-skill --global` (system-wide install, asks for root `sudo` permission if needed) to install/update the CLI and configure the skill/rule files for **Google Antigravity (AGY)**, **Claude Code**, **OpenAI Codex**, and **Cursor**.
+1. Run `npx agent-plan-viewer@latest install-skill` (user-space install in `~/.local/bin/agent-plan-viewer`, no root permission needed) or `npx agent-plan-viewer@latest install-skill --global` (system-wide install, asks for root `sudo` permission if needed) to install/update the CLI and configure the skill/rule files for **Google Antigravity (AGY)**, **Claude Code**, **OpenAI Codex**, **GitHub Copilot**, **Hermes Agent**, **Cursor**, **Windsurf**, **OpenClaw**, and **Cline**.
 2. When the agent finishes planning, it runs:
    ```bash
    agent-plan-viewer review <path-to-plan.md> --json

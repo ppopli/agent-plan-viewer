@@ -6,14 +6,14 @@ import fs from 'fs';
 import { PlanViewerServer } from './server.js';
 import { ReviewResult } from '../core/types.js';
 import { formatAgentInstructions } from '../core/plan-serializer.js';
-import { installSkill } from './installer.js';
+import { installSkill, SkillTarget } from './installer.js';
 
 const program = new Command();
 
 program
   .name('agent-plan-viewer')
   .description('Interactive visual viewer and editor for AI agent implementation plans')
-  .version('1.0.5');
+  .version('1.0.6');
 
 program
   .command('review')
@@ -109,13 +109,13 @@ program
   .command('install-skill')
   .alias('init')
   .alias('add-skill')
-  .description('Install/update global agent-plan-viewer CLI and configure skill files in Antigravity, Claude Code, or Cursor')
-  .option('-t, --target <target>', 'Target agent: agy, claude, cursor, or all', 'all')
+  .description('Install/update agent-plan-viewer CLI and configure skill files for AGY, Claude Code, Codex, GitHub Copilot, Hermes, Cursor, Windsurf, OpenClaw, and Cline')
+  .option('-t, --target <target>', 'Target agent: agy, claude, codex, copilot, hermes, cursor, windsurf, openclaw, cline, or all', 'all')
   .option('-g, --global', 'Install globally to user home directory instead of current workspace')
   .option('--dry-run', 'Preview files and CLI actions without writing')
-  .option('--no-rules', 'Do not update rule files (AGENTS.md, CLAUDE.md, .cursorrules, ~/.gemini/GEMINI.md)')
-  .option('--skip-cli', 'Skip installing/updating the global agent-plan-viewer CLI binary')
-  .action(async (options: { target: 'all' | 'agy' | 'claude' | 'cursor'; global?: boolean; dryRun?: boolean; rules?: boolean; skipCli?: boolean }) => {
+  .option('--no-rules', 'Do not update rule files (AGENTS.md, CLAUDE.md, .github/copilot-instructions.md, .cursorrules, ~/.gemini/GEMINI.md)')
+  .option('--skip-cli', 'Skip installing/updating the agent-plan-viewer CLI binary')
+  .action(async (options: { target: SkillTarget; global?: boolean; dryRun?: boolean; rules?: boolean; skipCli?: boolean }) => {
     await installSkill({
       target: options.target,
       global: options.global,

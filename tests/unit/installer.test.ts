@@ -162,13 +162,27 @@ describe('CLI & Skill Installer / Updater', () => {
 
     const agySkillPath = path.join(fakeCwd, '.agents/skills/agent-plan-viewer/SKILL.md');
     const claudeSkillPath = path.join(fakeCwd, '.claude/skills/agent-plan-viewer/SKILL.md');
+    const codexSkillPath = path.join(fakeCwd, '.codex/skills/agent-plan-viewer/SKILL.md');
+    const copilotSkillPath = path.join(fakeCwd, '.github/skills/agent-plan-viewer/SKILL.md');
+    const copilotInstructionsPath = path.join(fakeCwd, '.github/copilot-instructions.md');
+    const hermesSkillPath = path.join(fakeCwd, '.hermes/skills/agent-plan-viewer/SKILL.md');
+    const cursorSkillPath = path.join(fakeCwd, '.cursor/skills/agent-plan-viewer/SKILL.md');
     const cursorMdcPath = path.join(fakeCwd, '.cursor/rules/plan-review.mdc');
+    const windsurfSkillPath = path.join(fakeCwd, '.windsurf/skills/agent-plan-viewer/SKILL.md');
+    const clineSkillPath = path.join(fakeCwd, '.cline/skills/agent-plan-viewer/SKILL.md');
     const agentsMdPath = path.join(fakeCwd, 'AGENTS.md');
     const claudeMdPath = path.join(fakeCwd, 'CLAUDE.md');
 
     expect(fs.existsSync(agySkillPath)).toBe(true);
     expect(fs.existsSync(claudeSkillPath)).toBe(true);
+    expect(fs.existsSync(codexSkillPath)).toBe(true);
+    expect(fs.existsSync(copilotSkillPath)).toBe(true);
+    expect(fs.existsSync(copilotInstructionsPath)).toBe(true);
+    expect(fs.existsSync(hermesSkillPath)).toBe(true);
+    expect(fs.existsSync(cursorSkillPath)).toBe(true);
     expect(fs.existsSync(cursorMdcPath)).toBe(true);
+    expect(fs.existsSync(windsurfSkillPath)).toBe(true);
+    expect(fs.existsSync(clineSkillPath)).toBe(true);
     expect(fs.existsSync(agentsMdPath)).toBe(true);
     expect(fs.existsSync(claudeMdPath)).toBe(true);
     expect(commands.some((c) => c.includes(`--prefix "${path.join(fakeHome, '.local')}" agent-plan-viewer@latest`))).toBe(true);
@@ -210,6 +224,16 @@ describe('CLI & Skill Installer / Updater', () => {
     expect(fs.existsSync(path.join(fakeHome, '.gemini/GEMINI.md'))).toBe(true);
     expect(fs.existsSync(path.join(fakeHome, '.claude/skills/agent-plan-viewer/SKILL.md'))).toBe(true);
     expect(fs.existsSync(path.join(fakeHome, '.claude/CLAUDE.md'))).toBe(true);
+    expect(fs.existsSync(path.join(fakeHome, '.codex/skills/agent-plan-viewer/SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(fakeHome, '.codex/AGENTS.md'))).toBe(true);
+    expect(fs.existsSync(path.join(fakeHome, '.copilot/skills/agent-plan-viewer/SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(fakeHome, '.copilot/copilot-instructions.md'))).toBe(true);
+    expect(fs.existsSync(path.join(fakeHome, '.hermes/skills/agent-plan-viewer/SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(fakeHome, '.hermes/AGENTS.md'))).toBe(true);
+    expect(fs.existsSync(path.join(fakeHome, '.cursor/skills/agent-plan-viewer/SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(fakeHome, '.codeium/windsurf/skills/agent-plan-viewer/SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(fakeHome, '.openclaw/skills/agent-plan-viewer/SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(fakeHome, '.cline/skills/agent-plan-viewer/SKILL.md'))).toBe(true);
 
     const geminiMd = fs.readFileSync(path.join(fakeHome, '.gemini/GEMINI.md'), 'utf-8');
     expect(geminiMd).toContain('# Global Rules');

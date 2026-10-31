@@ -1,6 +1,12 @@
 ---
 name: agent-plan-viewer
 description: Launches an interactive visual plan and markdown viewer/editor for the user to review, edit any line or section inline, manage tasks, adjust diagrams, and simulate request flows before execution.
+version: 1.0.6
+license: MIT
+platforms: [macos, linux, windows]
+metadata:
+  hermes:
+    tags: [Planning, Architecture, Mermaid, Diagram, Code Review]
 ---
 
 # Interactive Plan & Markdown Review Skill
@@ -121,4 +127,4 @@ Whenever the user adds, renames, moves, rewires, or removes components/connectio
 
 ---
 
-> 📖 **Installation & Configuration Reference**: For detailed setup guides for Google Antigravity (AGY), Claude Code, OpenAI Codex, and Cursor, see [`skills/agent-plan-viewer/README.md`](./README.md).
+> 📖 **Installation & Configuration Reference**: For detailed setup guides for Google Antigravity (AGY), Claude Code, OpenAI Codex, GitHub Copilot, Hermes Agent, Cursor, Windsurf, OpenClaw, and Cline, see [`skills/agent-plan-viewer/README.md`](./README.md).

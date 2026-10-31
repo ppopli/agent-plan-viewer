@@ -22,6 +22,12 @@ export function getSkillContent() {
     return `---
 name: agent-plan-viewer
 description: Launches an interactive visual plan and markdown viewer/editor for the user to review, edit any line or section inline, manage tasks, adjust diagrams, and simulate request flows before execution.
+version: 1.0.6
+license: MIT
+platforms: [macos, linux, windows]
+metadata:
+  hermes:
+    tags: [Planning, Architecture, Mermaid, Diagram, Code Review]
 ---
 
 # Interactive Plan & Markdown Review Skill
@@ -128,8 +134,9 @@ function defaultExec(cmd, opts) {
     }
     // Strip temporary `_npx` cache directories and local `node_modules/.bin` from PATH
     // so `agent-plan-viewer --version` checks the real system-wide installation.
-    if (cleanEnv.PATH) {
-        cleanEnv.PATH = cleanEnv.PATH
+    const pathKey = Object.keys(cleanEnv).find((k) => k.toUpperCase() === 'PATH') || 'PATH';
+    if (cleanEnv[pathKey]) {
+        cleanEnv[pathKey] = cleanEnv[pathKey]
             .split(path.delimiter)
             .filter((segment) => !segment.includes('_npx') &&
             !segment.endsWith(`node_modules${path.sep}.bin`))
@@ -151,10 +158,18 @@ function defaultExec(cmd, opts) {
     }).trim();
 }
 function ensureUserBinInPath(homeDir, userBinDir, isDryRun) {
-    const currentPath = process.env.PATH || '';
+    const currentPath = process.env.PATH || process.env.Path || '';
     const pathSegments = currentPath.split(path.delimiter);
     if (pathSegments.includes(userBinDir)) {
         return;
+    }
+    if (process.platform === 'win32' && !isDryRun) {
+        try {
+            execSync(`powershell -NoProfile -Command "$u = [Environment]::GetEnvironmentVariable('Path', 'User'); if ($u -notlike '*${userBinDir}*') { [Environment]::SetEnvironmentVariable('Path', \\"$u;${userBinDir}\\", 'User') }"`, { stdio: 'ignore' });
+        }
+        catch {
+            // Ignore if PowerShell is restricted
+        }
     }
     const exportLine = `export PATH="$HOME/.local/bin:$PATH"`;
     const rcCandidates = ['.zshrc', '.bashrc'].map((rc) => path.join(homeDir, rc));
@@ -189,9 +204,10 @@ export function ensureCliInstalled(options) {
     // USER-SPACE ("LOCAL") INSTALL (~/.local/bin/agent-plan-viewer, no root/sudo)
     // =========================================================================
     if (!isGlobal) {
+        const isWin = process.platform === 'win32';
         const userPrefix = path.join(homeDir, '.local');
-        const userBinDir = path.join(userPrefix, 'bin');
-        const userBinPath = path.join(userBinDir, 'agent-plan-viewer');
+        const userBinDir = isWin ? userPrefix : path.join(userPrefix, 'bin');
+        const userBinPath = path.join(userBinDir, isWin ? 'agent-plan-viewer.cmd' : 'agent-plan-viewer');
         const candidatePkgPaths = [
             path.join(userPrefix, 'lib/node_modules/agent-plan-viewer/package.json'),
             path.join(userPrefix, 'node_modules/agent-plan-viewer/package.json'),
@@ -389,6 +405,24 @@ export async function installSkill(options = {}) {
             execCommand: options.execCommand,
         });
     }
+    // Track already-written skill/rule paths in this run so shared paths (e.g. .agents/skills, AGENTS.md)
+    // are only written once when target === 'all'.
+    const writtenSkillPaths = new Set();
+    const writtenRulePaths = new Set();
+    const installSkillPath = (filePath, content, label) => {
+        const norm = path.resolve(filePath);
+        if (writtenSkillPaths.has(norm))
+            return;
+        writtenSkillPaths.add(norm);
+        upsertSkillFile(filePath, content, label, isDryRun);
+    };
+    const installRulePath = (filePath, ruleText, baseDir, defaultHeader) => {
+        const norm = path.resolve(filePath);
+        if (writtenRulePaths.has(norm))
+            return;
+        writtenRulePaths.add(norm);
+        upsertRulesFile(filePath, ruleText, isDryRun, baseDir, defaultHeader);
+    };
     // 1. Google Antigravity (AGY)
     if (target === 'all' || target === 'agy') {
         const agyDirs = [];
@@ -401,17 +435,14 @@ export async function installSkill(options = {}) {
             agyDirs.push(path.join(cwd, '.agents/skills/agent-plan-viewer'));
         }
         for (const agyDir of agyDirs) {
-            const targetFile = path.join(agyDir, 'SKILL.md');
-            upsertSkillFile(targetFile, skillContent, 'Antigravity skill', isDryRun);
+            installSkillPath(path.join(agyDir, 'SKILL.md'), skillContent, 'Antigravity skill');
         }
         if (!skipRules) {
             if (isGlobal) {
-                const geminiMdPath = path.join(homeDir, '.gemini/GEMINI.md');
-                upsertRulesFile(geminiMdPath, GLOBAL_AGY_RULE_TEXT, isDryRun, homeDir, '# Global Rules');
+                installRulePath(path.join(homeDir, '.gemini/GEMINI.md'), GLOBAL_AGY_RULE_TEXT, homeDir, '# Global Rules');
             }
             else {
-                const agentsMdPath = path.join(cwd, 'AGENTS.md');
-                upsertRulesFile(agentsMdPath, AGENT_RULE_TEXT, isDryRun, cwd);
+                installRulePath(path.join(cwd, 'AGENTS.md'), AGENT_RULE_TEXT, cwd);
             }
         }
     }
@@ -420,24 +451,104 @@ export async function installSkill(options = {}) {
         const claudeDir = isGlobal
             ? path.join(homeDir, '.claude/skills/agent-plan-viewer')
             : path.join(cwd, '.claude/skills/agent-plan-viewer');
-        const targetFile = path.join(claudeDir, 'SKILL.md');
-        upsertSkillFile(targetFile, skillContent, 'Claude Code skill', isDryRun);
+        installSkillPath(path.join(claudeDir, 'SKILL.md'), skillContent, 'Claude Code skill');
         if (!skipRules) {
             const claudeMdPath = isGlobal
                 ? path.join(homeDir, '.claude/CLAUDE.md')
                 : path.join(cwd, 'CLAUDE.md');
-            upsertRulesFile(claudeMdPath, AGENT_RULE_TEXT, isDryRun, isGlobal ? homeDir : cwd);
+            installRulePath(claudeMdPath, AGENT_RULE_TEXT, isGlobal ? homeDir : cwd);
         }
     }
-    // 3. Cursor
+    // 3. OpenAI Codex
+    if (target === 'all' || target === 'codex') {
+        const codexDirs = isGlobal
+            ? [
+                path.join(homeDir, '.codex/skills/agent-plan-viewer'),
+                path.join(homeDir, '.agents/skills/agent-plan-viewer'),
+            ]
+            : [
+                path.join(cwd, '.codex/skills/agent-plan-viewer'),
+                path.join(cwd, '.agents/skills/agent-plan-viewer'),
+            ];
+        for (const codexDir of codexDirs) {
+            installSkillPath(path.join(codexDir, 'SKILL.md'), skillContent, 'OpenAI Codex skill');
+        }
+        if (!skipRules) {
+            const codexRulePath = isGlobal
+                ? path.join(homeDir, '.codex/AGENTS.md')
+                : path.join(cwd, 'AGENTS.md');
+            installRulePath(codexRulePath, AGENT_RULE_TEXT, isGlobal ? homeDir : cwd);
+        }
+    }
+    // 4. GitHub Copilot
+    if (target === 'all' || target === 'copilot') {
+        const copilotDir = isGlobal
+            ? path.join(homeDir, '.copilot/skills/agent-plan-viewer')
+            : path.join(cwd, '.github/skills/agent-plan-viewer');
+        installSkillPath(path.join(copilotDir, 'SKILL.md'), skillContent, 'GitHub Copilot skill');
+        if (!skipRules) {
+            const copilotRulePath = isGlobal
+                ? path.join(homeDir, '.copilot/copilot-instructions.md')
+                : path.join(cwd, '.github/copilot-instructions.md');
+            installRulePath(copilotRulePath, AGENT_RULE_TEXT, isGlobal ? homeDir : cwd);
+        }
+    }
+    // 5. Hermes Agent
+    if (target === 'all' || target === 'hermes') {
+        const hermesDir = isGlobal
+            ? path.join(homeDir, '.hermes/skills/agent-plan-viewer')
+            : path.join(cwd, '.hermes/skills/agent-plan-viewer');
+        installSkillPath(path.join(hermesDir, 'SKILL.md'), skillContent, 'Hermes Agent skill');
+        if (!skipRules) {
+            const hermesRulePath = isGlobal
+                ? path.join(homeDir, '.hermes/AGENTS.md')
+                : path.join(cwd, 'AGENTS.md');
+            installRulePath(hermesRulePath, AGENT_RULE_TEXT, isGlobal ? homeDir : cwd);
+        }
+    }
+    // 6. Cursor
     if (target === 'all' || target === 'cursor') {
+        const cursorSkillDir = isGlobal
+            ? path.join(homeDir, '.cursor/skills/agent-plan-viewer')
+            : path.join(cwd, '.cursor/skills/agent-plan-viewer');
+        installSkillPath(path.join(cursorSkillDir, 'SKILL.md'), skillContent, 'Cursor skill');
         if (!isGlobal) {
             const cursorRulesDir = path.join(cwd, '.cursor/rules');
             const cursorMdcPath = path.join(cursorRulesDir, 'plan-review.mdc');
-            upsertSkillFile(cursorMdcPath, CURSOR_MDC_TEXT, 'Cursor rule', isDryRun);
+            installSkillPath(cursorMdcPath, CURSOR_MDC_TEXT, 'Cursor rule');
             if (!skipRules) {
                 const cursorrulesPath = path.join(cwd, '.cursorrules');
-                upsertRulesFile(cursorrulesPath, AGENT_RULE_TEXT, isDryRun, cwd);
+                installRulePath(cursorrulesPath, AGENT_RULE_TEXT, cwd);
+            }
+        }
+    }
+    // 7. Windsurf
+    if (target === 'all' || target === 'windsurf') {
+        const windsurfDir = isGlobal
+            ? path.join(homeDir, '.codeium/windsurf/skills/agent-plan-viewer')
+            : path.join(cwd, '.windsurf/skills/agent-plan-viewer');
+        installSkillPath(path.join(windsurfDir, 'SKILL.md'), skillContent, 'Windsurf skill');
+        if (!skipRules) {
+            const windsurfRulePath = isGlobal
+                ? path.join(homeDir, '.codeium/windsurf/memories/global_rules.md')
+                : path.join(cwd, '.windsurfrules');
+            installRulePath(windsurfRulePath, AGENT_RULE_TEXT, isGlobal ? homeDir : cwd);
+        }
+    }
+    // 8. OpenClaw & Cline / Roo Code
+    if (target === 'all' || target === 'openclaw' || target === 'cline') {
+        if (isGlobal) {
+            if (target === 'all' || target === 'openclaw') {
+                installSkillPath(path.join(homeDir, '.openclaw/skills/agent-plan-viewer/SKILL.md'), skillContent, 'OpenClaw skill');
+            }
+            if (target === 'all' || target === 'cline') {
+                installSkillPath(path.join(homeDir, '.cline/skills/agent-plan-viewer/SKILL.md'), skillContent, 'Cline skill');
+            }
+        }
+        else {
+            installSkillPath(path.join(cwd, '.cline/skills/agent-plan-viewer/SKILL.md'), skillContent, 'Cline skill');
+            if (!skipRules) {
+                installRulePath(path.join(cwd, '.clinerules'), AGENT_RULE_TEXT, cwd);
             }
         }
     }

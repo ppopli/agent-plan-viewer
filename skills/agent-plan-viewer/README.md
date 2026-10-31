@@ -1,6 +1,6 @@
 # Installing & Configuring the Agent Plan Viewer Skill 🛠️
 
-This guide provides step-by-step instructions for installing and enabling the **`agent-plan-viewer`** skill for the supported AI coding tools: **Google Antigravity (AGY)**, **Claude Code**, **OpenAI Codex**, and **Cursor**.
+This guide provides step-by-step instructions for installing and enabling the **`agent-plan-viewer`** skill for the supported AI coding agents: **Google Antigravity (AGY)**, **Claude Code**, **OpenAI Codex**, **GitHub Copilot**, **Hermes Agent**, **Cursor**, **Windsurf**, **OpenClaw**, and **Cline**.
 
 ---
 
@@ -12,24 +12,40 @@ You can install or update both the `agent-plan-viewer` CLI binary and the agent 
 ```bash
 npx agent-plan-viewer@latest install-skill
 ```
-*Installs or updates `agent-plan-viewer` into your user space (`~/.local/bin/agent-plan-viewer`, automatically adding `~/.local/bin` to your shell `PATH`) **without requiring root (`sudo`) permission**, and installs/updates the workspace skills and rules for **Google Antigravity (AGY)**, **Claude Code**, **OpenAI Codex**, and **Cursor** (`.agents/skills/`, `.claude/skills/`, `.cursor/rules/`, `AGENTS.md`, `CLAUDE.md`, `.cursorrules`).*
+*Installs or updates `agent-plan-viewer` into your user space (`~/.local/bin/agent-plan-viewer`, automatically adding `~/.local/bin` to your shell `PATH`) **without requiring root (`sudo`) permission**, and installs/updates the workspace skills and rules for **Google Antigravity (AGY)**, **Claude Code**, **OpenAI Codex**, **GitHub Copilot**, **Hermes Agent**, **Cursor**, **Windsurf**, **OpenClaw**, and **Cline** (`.agents/skills/`, `.claude/skills/`, `.codex/skills/`, `.github/skills/`, `.hermes/skills/`, `.cursor/skills/`, `.windsurf/skills/`, `.cline/skills/`, `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md`, `.cursorrules`, `.windsurfrules`, `.clinerules`).*
 
 ### Global (System-Wide) Installation — Asks for Root (`sudo`) Permission:
 ```bash
 npx agent-plan-viewer@latest install-skill --global
 ```
-*Installs or updates the `agent-plan-viewer` CLI system-wide (**will ask for root/`sudo` permission** in the terminal if your system's global npm directory requires administrator privileges), and installs/updates global skills and rules in `~/.gemini/` (`SKILL.md` + `GEMINI.md`) and `~/.claude/` (`SKILL.md` + `CLAUDE.md`).*
+*Installs or updates the `agent-plan-viewer` CLI system-wide (**will ask for root/`sudo` permission** in the terminal if your system's global npm directory requires administrator privileges), and installs/updates global skills and rules in `~/.gemini/`, `~/.claude/`, `~/.codex/`, `~/.copilot/`, `~/.hermes/`, `~/.cursor/`, `~/.codeium/windsurf/`, `~/.openclaw/`, and `~/.cline/`.*
 
-### Target a Specific Supported Tool Only:
+### Target a Specific Supported Agent Only:
 ```bash
-# Google Antigravity (AGY) & OpenAI Codex (.agents/skills + AGENTS.md)
+# Google Antigravity (AGY)
 npx agent-plan-viewer@latest install-skill --target agy
 
-# Claude Code (.claude/skills + CLAUDE.md)
+# Claude Code
 npx agent-plan-viewer@latest install-skill --target claude
 
-# Cursor (.cursor/rules + .cursorrules)
+# OpenAI Codex
+npx agent-plan-viewer@latest install-skill --target codex
+
+# GitHub Copilot
+npx agent-plan-viewer@latest install-skill --target copilot
+
+# Hermes Agent
+npx agent-plan-viewer@latest install-skill --target hermes
+
+# Cursor
 npx agent-plan-viewer@latest install-skill --target cursor
+
+# Windsurf
+npx agent-plan-viewer@latest install-skill --target windsurf
+
+# OpenClaw / Cline
+npx agent-plan-viewer@latest install-skill --target openclaw
+npx agent-plan-viewer@latest install-skill --target cline
 ```
 
 ### Via One-Liner Shell Script:
@@ -154,24 +170,52 @@ For Cursor AI Agent and Composer:
 
 ### D. OpenAI Codex
 
-OpenAI Codex reads workspace instructions from `AGENTS.md` and `.agents/skills/`:
+OpenAI Codex discovers skills in `.codex/skills/` and `.agents/skills/` (or `~/.codex/skills/` globally) and reads workspace instructions from `AGENTS.md`:
 
-1. **Install Skill File**:
-   ```bash
-   mkdir -p .agents/skills/agent-plan-viewer
-   cp /path/to/agent-plan-viewer/skills/agent-plan-viewer/SKILL.md .agents/skills/agent-plan-viewer/SKILL.md
-   ```
+```bash
+npx agent-plan-viewer@latest install-skill --target codex
+# Or globally:
+npx agent-plan-viewer@latest install-skill --target codex --global
+```
 
-2. **Add Rule to `AGENTS.md`**:
-   ```markdown
-   ## Interactive Plan Review Protocol (agent-plan-viewer)
-   Whenever you formulate or update an implementation plan or architecture design:
-   1. DO NOT simply output raw markdown and ask for approval in the terminal.
-   2. Save your plan to a markdown file (e.g. `plan.md`).
-   3. Launch the interactive viewer: `agent-plan-viewer review plan.md --json` (or `npx agent-plan-viewer review plan.md --json`).
-   4. Wait synchronously for the developer to review, edit, and approve in the browser.
-   5. Ingest the returned JSON result and user instructions before making any code modifications.
-   ```
+---
+
+### E. GitHub Copilot
+
+GitHub Copilot Agent Mode discovers skills in `.github/skills/<skill-name>/SKILL.md` (or `~/.copilot/skills/` globally) and repository instructions in `.github/copilot-instructions.md`:
+
+```bash
+npx agent-plan-viewer@latest install-skill --target copilot
+# Or globally:
+npx agent-plan-viewer@latest install-skill --target copilot --global
+```
+
+---
+
+### F. Hermes Agent
+
+Hermes Agent discovers skills in `~/.hermes/skills/<skill-name>/SKILL.md` (or `.hermes/skills/` in a workspace) using the `agentskills.io` frontmatter specification:
+
+```bash
+npx agent-plan-viewer@latest install-skill --target hermes --global
+# Or for a workspace:
+npx agent-plan-viewer@latest install-skill --target hermes
+```
+
+---
+
+### G. Windsurf, OpenClaw, and Cline
+
+```bash
+# Windsurf (.windsurf/skills + .windsurfrules, or ~/.codeium/windsurf/skills globally)
+npx agent-plan-viewer@latest install-skill --target windsurf
+
+# OpenClaw (~/.openclaw/skills/agent-plan-viewer/SKILL.md)
+npx agent-plan-viewer@latest install-skill --target openclaw --global
+
+# Cline / Roo Code (.cline/skills + .clinerules)
+npx agent-plan-viewer@latest install-skill --target cline
+```
 
 ---
 
