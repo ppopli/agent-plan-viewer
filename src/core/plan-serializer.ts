@@ -28,10 +28,14 @@ export function serializePlanMarkdown(state: PlanState): string {
   markdown = markdown.replace(mermaidRegex, (match, rawCode) => {
     if (diagIdx < state.diagrams.length) {
       const diagram = state.diagrams[diagIdx++];
+      const sourceCode =
+        diagram.rawMermaid && diagram.rawMermaid.trim().length > 0
+          ? diagram.rawMermaid
+          : String(rawCode);
       // Flowchart/graph, sequence and ER diagrams are editable in the viewer.
       // Anything else (classDiagram, stateDiagram, ...) can't round-trip through
       // the graph model, so keep the author's original source verbatim.
-      const firstLine = String(rawCode)
+      const firstLine = sourceCode
         .split('\n')
         .map((l: string) => l.trim())
         .find((l: string) => l.length > 0 && !l.startsWith('%%'))
@@ -41,12 +45,12 @@ export function serializePlanMarkdown(state: PlanState): string {
       if (!editable) return match;
       // Regenerating from the parsed graph is lossy (e.g. drops alt/else/opt
       // blocks), so leave the block untouched unless the user changed it.
-      const original = parseMermaid(String(rawCode), diagram.id);
+      const original = parseMermaid(sourceCode, diagram.id);
       if (diagramsEqual(original, diagram)) return match;
       // Patch only the changed lines of the original source so subgraphs,
       // alt/else blocks, notes, styling and comments survive. Regenerating the
       // whole diagram is the last resort.
-      const patched = patchMermaid(String(rawCode), original, diagram);
+      const patched = patchMermaid(sourceCode, original, diagram);
       // Regenerating would turn an ER diagram into a flowchart, so for ER we
       // keep the original source if the edit can't be patched.
       if (patched === null && isEr) return match;
