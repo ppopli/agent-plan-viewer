@@ -984,14 +984,27 @@ export function autoLayout(nodes: DiagramNode[], edges: DiagramEdge[]) {
       }
     }
 
-    // Pass 2: Include downstream nodes fed exclusively by sidecar nodes (e.g. OTel Collector -> Prometheus DB -> Alertmanager -> User)
+    // Pass 2: Include downstream nodes fed by sidecar nodes, observability nodes connected to sidecar,
+    // and leaf actors/sources that connect exclusively into sidecar nodes
     let addedDownstream = true;
     while (addedDownstream) {
       addedDownstream = false;
       for (const node of nodes) {
         if (sidecarIdSet.has(node.id)) continue;
         const inc = incomingByNode.get(node.id) || [];
-        if (inc.length > 0 && inc.every((e) => sidecarIdSet.has(e.source))) {
+        const out = outgoingByNode.get(node.id) || [];
+        const fedExclusivelyBySidecar =
+          inc.length > 0 && inc.every((e) => sidecarIdSet.has(e.source));
+        const obsConnectedToSidecar =
+          isObservabilityNode(node) && inc.some((e) => sidecarIdSet.has(e.source));
+        const leafFeedingExclusivelyIntoSidecar =
+          inc.length === 0 && out.length > 0 && out.every((e) => sidecarIdSet.has(e.target));
+
+        if (
+          fedExclusivelyBySidecar ||
+          obsConnectedToSidecar ||
+          leafFeedingExclusivelyIntoSidecar
+        ) {
           sidecarIdSet.add(node.id);
           addedDownstream = true;
         }
@@ -1117,11 +1130,20 @@ export function autoLayout(nodes: DiagramNode[], edges: DiagramEdge[]) {
       (e) => sidecarIdSet.has(e.source) && sidecarIdSet.has(e.target) && e.source !== e.target
     );
 
+    const sidecarNodeById = new Map(sidecarNodes.map((n) => [n.id, n]));
+    const isLeafSidecarActor = (id: string) => {
+      const n = sidecarNodeById.get(id);
+      const inc = incomingByNode.get(id) || [];
+      const out = outgoingByNode.get(id) || [];
+      return Boolean(n && inc.length === 0 && out.length > 0 && !isObservabilityNode(n));
+    };
+
     const sRank = new Map<string, number>();
     sidecarNodes.forEach((n) => sRank.set(n.id, 0));
     for (let iter = 0; iter < sidecarNodes.length + 2; iter++) {
       let changed = false;
       for (const edge of sidecarEdges) {
+        if (isLeafSidecarActor(edge.source)) continue;
         const uRank = sRank.get(edge.source) || 0;
         const vRank = sRank.get(edge.target) || 0;
         if (vRank < uRank + 1 && uRank + 1 < sidecarNodes.length) {
@@ -1130,6 +1152,18 @@ export function autoLayout(nodes: DiagramNode[], edges: DiagramEdge[]) {
         }
       }
       if (!changed) break;
+    }
+
+    // Place leaf actors that point into a deeper sidecar node (e.g. "user view dashboard" -> "Grafana Dashboards")
+    // on the layer directly beneath their target so they don't cross upper pipeline layers
+    for (const node of sidecarNodes) {
+      if (isLeafSidecarActor(node.id)) {
+        const out = sidecarEdges.filter((e) => e.source === node.id);
+        const maxTargetRank = Math.max(0, ...out.map((e) => sRank.get(e.target) || 0));
+        if (maxTargetRank >= 1) {
+          sRank.set(node.id, maxTargetRank + 1);
+        }
+      }
     }
 
     const sLayerMap = new Map<number, DiagramNode[]>();
@@ -1166,14 +1200,21 @@ export function autoLayout(nodes: DiagramNode[], edges: DiagramEdge[]) {
     sLayers.forEach((layer, layerIdx) => {
       let layerAnchorX = sidecarCenterX;
       if (layerIdx > 0) {
+        const getConnectedXs = (nodeId: string) =>
+          sidecarEdges
+            .filter(
+              (e) =>
+                (e.target === nodeId && sNodeXMap.has(e.source)) ||
+                (e.source === nodeId && sNodeXMap.has(e.target))
+            )
+            .map((e) =>
+              e.target === nodeId ? sNodeXMap.get(e.source)! : sNodeXMap.get(e.target)!
+            );
+
         const parentXs: number[] = [];
         layer.sort((a, b) => {
-          const aParents = sidecarEdges
-            .filter((e) => e.target === a.id && sNodeXMap.has(e.source))
-            .map((e) => sNodeXMap.get(e.source)!);
-          const bParents = sidecarEdges
-            .filter((e) => e.target === b.id && sNodeXMap.has(e.source))
-            .map((e) => sNodeXMap.get(e.source)!);
+          const aParents = getConnectedXs(a.id);
+          const bParents = getConnectedXs(b.id);
           const aBary =
             aParents.length > 0
               ? aParents.reduce((s, v) => s + v, 0) / aParents.length
@@ -1186,10 +1227,7 @@ export function autoLayout(nodes: DiagramNode[], edges: DiagramEdge[]) {
         });
 
         for (const n of layer) {
-          const pXs = sidecarEdges
-            .filter((e) => e.target === n.id && sNodeXMap.has(e.source))
-            .map((e) => sNodeXMap.get(e.source)!);
-          parentXs.push(...pXs);
+          parentXs.push(...getConnectedXs(n.id));
         }
         if (parentXs.length > 0 && layer.length < maxSLayerNodes) {
           layerAnchorX = Math.round(
