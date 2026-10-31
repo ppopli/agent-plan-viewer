@@ -186,6 +186,21 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [dragPositions, setDragPositions] = useState<Record<string, { x: number; y: number }>>({});
   const dragPositionsRef = useRef<Record<string, { x: number; y: number }>>({});
+  const clipboardRef = useRef<{
+    node: DiagramNode;
+    wasCut: boolean;
+    pasteCount: number;
+  } | null>(null);
+  const [clipboardBanner, setClipboardBanner] = useState<string | null>(null);
+  const bannerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showClipboardFeedback = useCallback((msg: string) => {
+    setClipboardBanner(msg);
+    if (bannerTimeoutRef.current) clearTimeout(bannerTimeoutRef.current);
+    bannerTimeoutRef.current = setTimeout(() => {
+      setClipboardBanner(null);
+    }, 2200);
+  }, []);
 
   const deleteButtonRef = useRef<HTMLButtonElement>(null);
   const reactFlowWrapperRef = useRef<HTMLDivElement>(null);
@@ -314,6 +329,98 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
     },
     [diagram, planState, selectedDiagIdx, commitDiagramUpdate]
   );
+
+  // Keyboard shortcuts: Ctrl/Cmd + C (Copy), Ctrl/Cmd + X (Cut), Ctrl/Cmd + V (Paste)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      const modKey = e.ctrlKey || e.metaKey;
+      if (!modKey || e.altKey || e.shiftKey) return;
+
+      const key = e.key.toLowerCase();
+
+      if (key === 'c') {
+        if (!diagram || !selectedNodeId) return;
+        const nodeToCopy = diagram.nodes.find((n) => n.id === selectedNodeId);
+        if (!nodeToCopy) return;
+        e.preventDefault();
+        clipboardRef.current = {
+          node: { ...nodeToCopy },
+          wasCut: false,
+          pasteCount: 0,
+        };
+        showClipboardFeedback(`Copied "${nodeToCopy.label}" (${nodeToCopy.type})`);
+      } else if (key === 'x') {
+        if (!diagram || !selectedNodeId) return;
+        const nodeToCut = diagram.nodes.find((n) => n.id === selectedNodeId);
+        if (!nodeToCut) return;
+        e.preventDefault();
+        clipboardRef.current = {
+          node: { ...nodeToCut },
+          wasCut: true,
+          pasteCount: 0,
+        };
+        handleDeleteNode(selectedNodeId);
+        showClipboardFeedback(`Cut "${nodeToCut.label}" — press Ctrl/Cmd+V to paste`);
+      } else if (key === 'v') {
+        if (!diagram || !clipboardRef.current) return;
+        e.preventDefault();
+        clipboardRef.current.pasteCount += 1;
+        const { node: srcNode, wasCut, pasteCount } = clipboardRef.current;
+        const isFirstCutPaste = wasCut && pasteCount === 1;
+
+        const newId = `node_${Date.now()}`;
+        const newLabel = isFirstCutPaste
+          ? srcNode.label
+          : pasteCount === 1
+          ? `${srcNode.label} (Copy)`
+          : `${srcNode.label} (Copy ${pasteCount})`;
+        const offset = 45 * pasteCount;
+        const newNode: DiagramNode = {
+          id: newId,
+          label: newLabel,
+          type: srcNode.type,
+          shape: srcNode.shape,
+          x: Math.round(srcNode.x + offset),
+          y: Math.round(srcNode.y + offset),
+        };
+
+        const nextDiagrams = [...planState.diagrams];
+        nextDiagrams[selectedDiagIdx] = rebuildDiagramFlows({
+          ...diagram,
+          nodes: [...diagram.nodes, newNode],
+        });
+        const updatedInstructions = appendAutoInstruction(
+          `Added diagram component: "${newNode.label}" (${newNode.type}) at (${newNode.x}, ${newNode.y})`,
+          planState.userInstructions
+        );
+        commitDiagramUpdate(nextDiagrams, updatedInstructions);
+        setSelectedNodeId(newNode.id);
+        setSelectedEdgeId(null);
+        showClipboardFeedback(`Pasted "${newNode.label}"`);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    diagram,
+    selectedNodeId,
+    planState,
+    selectedDiagIdx,
+    commitDiagramUpdate,
+    handleDeleteNode,
+    showClipboardFeedback,
+  ]);
 
   // React Flow nodes
   const flowNodes: Node[] = useMemo(() => {
@@ -899,8 +1006,15 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
               maskColor="rgba(15, 23, 42, 0.7)"
               className="!bg-slate-900 !border-slate-800"
             />
-            <Panel position="bottom-left" className="bg-slate-900/90 border border-slate-800 p-2.5 rounded-xl text-[11px] text-slate-400 shadow-lg">
-              <span className="font-semibold text-slate-300">4-Way Linking:</span> Connect from any edge boundary (Top/Right/Bottom/Left) • Drag edge ends to reconnect • Click edge/node to delete (Del key or trash icon)
+            <Panel position="bottom-left" className="bg-slate-900/90 border border-slate-800 p-2.5 rounded-xl text-[11px] text-slate-400 shadow-lg flex items-center gap-3">
+              <div>
+                <span className="font-semibold text-slate-300">Shortcuts &amp; Linking:</span> Click node + <kbd className="px-1 py-0.5 bg-slate-800 text-slate-200 rounded text-[10px]">Ctrl/⌘+C</kbd> Copy • <kbd className="px-1 py-0.5 bg-slate-800 text-slate-200 rounded text-[10px]">Ctrl/⌘+X</kbd> Cut • <kbd className="px-1 py-0.5 bg-slate-800 text-slate-200 rounded text-[10px]">Ctrl/⌘+V</kbd> Paste • <kbd className="px-1 py-0.5 bg-slate-800 text-slate-200 rounded text-[10px]">Del</kbd> Delete • Connect any 4-way handle
+              </div>
+              {clipboardBanner && (
+                <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-medium text-[11px]">
+                  {clipboardBanner}
+                </span>
+              )}
             </Panel>
           </ReactFlow>
         </div>

@@ -203,7 +203,7 @@ export function usePlanHistory(initialState: PlanState, initialBaselines: Baseli
       }
 
       const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
-      const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+      const cmdOrCtrl = e.metaKey || e.ctrlKey;
 
       if (cmdOrCtrl && !e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
