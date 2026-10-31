@@ -154,8 +154,9 @@ function defaultExec(cmd: string, opts?: ExecOptions): string {
   }
   // Strip temporary `_npx` cache directories and local `node_modules/.bin` from PATH
   // so `agent-plan-viewer --version` checks the real system-wide installation.
-  if (cleanEnv.PATH) {
-    cleanEnv.PATH = cleanEnv.PATH
+  const pathKey = Object.keys(cleanEnv).find((k) => k.toUpperCase() === 'PATH') || 'PATH';
+  if (cleanEnv[pathKey]) {
+    cleanEnv[pathKey] = cleanEnv[pathKey]!
       .split(path.delimiter)
       .filter(
         (segment) =>
@@ -181,10 +182,21 @@ function defaultExec(cmd: string, opts?: ExecOptions): string {
 }
 
 function ensureUserBinInPath(homeDir: string, userBinDir: string, isDryRun: boolean): void {
-  const currentPath = process.env.PATH || '';
+  const currentPath = process.env.PATH || process.env.Path || '';
   const pathSegments = currentPath.split(path.delimiter);
   if (pathSegments.includes(userBinDir)) {
     return;
+  }
+
+  if (process.platform === 'win32' && !isDryRun) {
+    try {
+      execSync(
+        `powershell -NoProfile -Command "$u = [Environment]::GetEnvironmentVariable('Path', 'User'); if ($u -notlike '*${userBinDir}*') { [Environment]::SetEnvironmentVariable('Path', \\"$u;${userBinDir}\\", 'User') }"`,
+        { stdio: 'ignore' }
+      );
+    } catch {
+      // Ignore if PowerShell is restricted
+    }
   }
 
   const exportLine = `export PATH="$HOME/.local/bin:$PATH"`;
@@ -236,9 +248,13 @@ export function ensureCliInstalled(options: {
   // USER-SPACE ("LOCAL") INSTALL (~/.local/bin/agent-plan-viewer, no root/sudo)
   // =========================================================================
   if (!isGlobal) {
+    const isWin = process.platform === 'win32';
     const userPrefix = path.join(homeDir, '.local');
-    const userBinDir = path.join(userPrefix, 'bin');
-    const userBinPath = path.join(userBinDir, 'agent-plan-viewer');
+    const userBinDir = isWin ? userPrefix : path.join(userPrefix, 'bin');
+    const userBinPath = path.join(
+      userBinDir,
+      isWin ? 'agent-plan-viewer.cmd' : 'agent-plan-viewer'
+    );
     const candidatePkgPaths = [
       path.join(userPrefix, 'lib/node_modules/agent-plan-viewer/package.json'),
       path.join(userPrefix, 'node_modules/agent-plan-viewer/package.json'),
