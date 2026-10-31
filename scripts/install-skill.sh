@@ -77,7 +77,20 @@ install_global_cli() {
 }
 
 install_local_cli() {
-  npm install --no-save agent-plan-viewer@latest || npm install --no-save github:ppopli/agent-plan-viewer
+  USER_PREFIX="$HOME/.local"
+  mkdir -p "$USER_PREFIX/bin"
+  npm install -g --prefix "$USER_PREFIX" agent-plan-viewer@latest || npm install -g --prefix "$USER_PREFIX" github:ppopli/agent-plan-viewer
+  case ":$PATH:" in
+    *":$USER_PREFIX/bin:"*) ;;
+    *)
+      for rc in "$HOME/.zshrc" "$HOME/.bashrc"; do
+        if [ -f "$rc" ] && ! grep -q '\.local/bin' "$rc"; then
+          printf '\n# Added by agent-plan-viewer\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$rc"
+        fi
+      done
+      export PATH="$USER_PREFIX/bin:$PATH"
+      ;;
+  esac
 }
 
 if [ "$IS_GLOBAL" = true ]; then
@@ -102,24 +115,25 @@ if [ "$IS_GLOBAL" = true ]; then
     fi
   fi
 else
-  if [ -f "./node_modules/.bin/agent-plan-viewer" ]; then
-    CURRENT_VER="$(./node_modules/.bin/agent-plan-viewer --version 2>/dev/null || echo 'unknown')"
+  USER_BIN="$HOME/.local/bin/agent-plan-viewer"
+  if [ -f "$USER_BIN" ]; then
+    CURRENT_VER="$("$USER_BIN" --version 2>/dev/null || echo 'unknown')"
     if [ "$IS_DRY_RUN" = true ]; then
-      echo "  ↻ [dry-run] Local ./node_modules/.bin/agent-plan-viewer (v${CURRENT_VER}) exists. Would update locally."
+      echo "  ↻ [dry-run] User-space CLI ${USER_BIN} (v${CURRENT_VER}) exists. Would update in user space."
     else
-      echo "  ↻ Local ./node_modules/.bin/agent-plan-viewer (v${CURRENT_VER}) is installed. Updating locally..."
+      echo "  ↻ User-space CLI ${USER_BIN} (v${CURRENT_VER}) is installed. Updating in user space..."
       install_local_cli
-      NEW_VER="$(./node_modules/.bin/agent-plan-viewer --version 2>/dev/null || echo 'latest')"
-      echo "  ✓ Updated local CLI: ./node_modules/.bin/agent-plan-viewer (v${CURRENT_VER} -> v${NEW_VER})"
+      NEW_VER="$("$USER_BIN" --version 2>/dev/null || echo 'latest')"
+      echo "  ✓ Updated user-space CLI: ${USER_BIN} (v${CURRENT_VER} -> v${NEW_VER})"
     fi
   else
     if [ "$IS_DRY_RUN" = true ]; then
-      echo "  + [dry-run] Local CLI not installed. Would install locally into ./node_modules/.bin/agent-plan-viewer (no sudo)."
+      echo "  + [dry-run] User-space CLI not installed. Would install into ${USER_BIN} (no root/sudo required)."
     else
-      echo "  + Installing agent-plan-viewer locally into ./node_modules/.bin/agent-plan-viewer (no sudo required)..."
+      echo "  + Installing agent-plan-viewer into user space (${USER_BIN}, no root/sudo required)..."
       install_local_cli
-      NEW_VER="$(./node_modules/.bin/agent-plan-viewer --version 2>/dev/null || echo 'latest')"
-      echo "  ✓ Installed local CLI: ./node_modules/.bin/agent-plan-viewer (v${NEW_VER})"
+      NEW_VER="$("$USER_BIN" --version 2>/dev/null || echo 'latest')"
+      echo "  ✓ Installed user-space CLI: ${USER_BIN} (v${NEW_VER})"
     fi
   fi
 fi
@@ -139,8 +153,8 @@ fi
 # 4. Run skill & rule installer/updater
 if [ -f "./bin/cli.js" ]; then
   node ./bin/cli.js "${CLI_ARGS[@]}"
-elif [ -f "./node_modules/.bin/agent-plan-viewer" ]; then
-  ./node_modules/.bin/agent-plan-viewer "${CLI_ARGS[@]}"
+elif [ -f "$HOME/.local/bin/agent-plan-viewer" ]; then
+  "$HOME/.local/bin/agent-plan-viewer" "${CLI_ARGS[@]}"
 elif command -v agent-plan-viewer >/dev/null 2>&1; then
   agent-plan-viewer "${CLI_ARGS[@]}"
 else

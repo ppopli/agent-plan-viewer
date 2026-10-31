@@ -1,6 +1,6 @@
 # Agent Plan Viewer ⚡
 
-> An interactive visual viewer and two-way editor for AI agent implementation plans (Claude Code, OpenAI Codex, Antigravity/AGY, Cursor, etc.).
+> An interactive visual viewer and two-way editor for AI agent implementation plans, supporting **Google Antigravity (AGY)**, **Claude Code**, **OpenAI Codex**, and **Cursor**.
 
 Instead of forcing developers to skim long, static markdown plans in terminal windows, **Agent Plan Viewer** renders plans as an interactive web environment with visual diagram manipulation, request flow stepping, explicit save controls, and bidirectional sync back to the waiting agent.
 
@@ -48,22 +48,25 @@ Instead of forcing developers to skim long, static markdown plans in terminal wi
 
 ### 1. Install via npm (Recommended)
 ```bash
-# Global install: installs/updates global CLI (`agent-plan-viewer`, prompts for sudo if needed) + global skills/rules
-npx agent-plan-viewer@latest install-skill --global
-
-# Local workspace install (no sudo): installs/updates CLI locally in ./node_modules/.bin/ + workspace skills/rules
+# Local (user-space) install — no root/sudo permission required:
+# Installs/updates the CLI in user space (~/.local/bin/agent-plan-viewer) + workspace skills/rules
 npx agent-plan-viewer@latest install-skill
 
-# Or install only the global CLI binary via npm
-npm install -g agent-plan-viewer
+# Global (system-wide) install — asks for root (sudo) permission if required by your system:
+# Installs/updates the CLI system-wide (/usr/local/bin/agent-plan-viewer) + global skills/rules
+npx agent-plan-viewer@latest install-skill --global
 ```
+
+> **Note on Permissions:**
+> - **Local (user-space) install (`npx agent-plan-viewer@latest install-skill`)**: Installs the `agent-plan-viewer` binary into your user directory (`~/.local/bin/agent-plan-viewer`) and adds `~/.local/bin` to your shell `PATH`. **No root (`sudo`) permission is required.**
+> - **Global install (`npx agent-plan-viewer@latest install-skill --global`)**: Installs `agent-plan-viewer` system-wide and **will ask for root (`sudo`) permission** in the terminal if your system's global npm directory requires administrator privileges.
 
 ### 2. Reviewing a Plan
 ```bash
 # Review an existing plan (blocks until approved or revised)
 agent-plan-viewer review ./examples/sample-plans/e-commerce-microservices.md
 
-# Output JSON result upon completion (ideal for agents)
+# Output JSON result upon completion (for supported agents)
 agent-plan-viewer review ./examples/sample-plans/e-commerce-microservices.md --json
 ```
 
@@ -71,31 +74,31 @@ agent-plan-viewer review ./examples/sample-plans/e-commerce-microservices.md --j
 
 ## Agent Integration (Skill)
 
-Agent Plan Viewer can be installed or updated across **Google Antigravity (AGY)**, **Claude Code**, **Cursor**, **Codex**, and custom pipelines with a single command from npm:
+Agent Plan Viewer supports **Google Antigravity (AGY)**, **Claude Code**, **OpenAI Codex**, and **Cursor**:
 
 ```bash
-# Local workspace install (no sudo required):
-# Installs/updates ./node_modules/.bin/agent-plan-viewer + workspace skills (.agents/skills, .claude/skills, .cursor/rules, AGENTS.md, CLAUDE.md)
+# Local (user-space) install — no root/sudo permission required:
+# Installs/updates ~/.local/bin/agent-plan-viewer + workspace skills (.agents/skills, .claude/skills, .cursor/rules, AGENTS.md, CLAUDE.md)
 npx agent-plan-viewer@latest install-skill
 
-# Global machine-wide install (prompts for sudo if global npm directory requires root):
-# Installs/updates global `agent-plan-viewer` CLI + machine-wide skills & rules (~/.gemini/GEMINI.md, ~/.claude/CLAUDE.md)
+# Global (system-wide) install — asks for root (sudo) permission when required:
+# Installs/updates system-wide `agent-plan-viewer` CLI + machine-wide skills & rules (~/.gemini/GEMINI.md, ~/.claude/CLAUDE.md)
 npx agent-plan-viewer@latest install-skill --global
 ```
 
 Or via the one-liner shell installer:
 ```bash
-# Global install (prompts for sudo if needed)
-curl -fsSL https://raw.githubusercontent.com/ppopli/agent-plan-viewer/main/scripts/install-skill.sh | bash -s -- --global
-
-# Local workspace install (no sudo required)
+# Local (user-space) install — no root/sudo permission required
 curl -fsSL https://raw.githubusercontent.com/ppopli/agent-plan-viewer/main/scripts/install-skill.sh | bash
+
+# Global (system-wide) install — asks for root (sudo) permission when required
+curl -fsSL https://raw.githubusercontent.com/ppopli/agent-plan-viewer/main/scripts/install-skill.sh | bash -s -- --global
 ```
 
 👉 **See the complete installation guide: [`skills/agent-plan-viewer/README.md`](./skills/agent-plan-viewer/README.md)**
 
 ### How It Works:
-1. Run `npx agent-plan-viewer@latest install-skill --global` (installs the CLI globally, prompting for `sudo` if your global npm prefix requires root) or `npx agent-plan-viewer@latest install-skill` (installs the CLI locally in `./node_modules/.bin/` without `sudo`) and configures the agent skill/rule files.
+1. Run `npx agent-plan-viewer@latest install-skill` (user-space install in `~/.local/bin/agent-plan-viewer`, no root permission needed) or `npx agent-plan-viewer@latest install-skill --global` (system-wide install, asks for root `sudo` permission if needed) to install/update the CLI and configure the skill/rule files for **Google Antigravity (AGY)**, **Claude Code**, **OpenAI Codex**, and **Cursor**.
 2. When the agent finishes planning, it runs:
    ```bash
    agent-plan-viewer review <path-to-plan.md> --json

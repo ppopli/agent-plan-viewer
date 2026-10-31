@@ -112,4 +112,4 @@ When the command exits with code `0`, it outputs a structured JSON result to `st
 
 ---
 
-> 📖 **Installation & Configuration Reference**: For detailed setup guides across Google Antigravity, Claude Code, Cursor, Codex, and custom frameworks, see [`skills/agent-plan-viewer/README.md`](./README.md).
+> 📖 **Installation & Configuration Reference**: For detailed setup guides for Google Antigravity (AGY), Claude Code, OpenAI Codex, and Cursor, see [`skills/agent-plan-viewer/README.md`](./README.md).

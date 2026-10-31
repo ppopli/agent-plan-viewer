@@ -178,36 +178,91 @@ function defaultExec(cmd: string, opts?: ExecOptions): string {
   }).trim();
 }
 
+function ensureUserBinInPath(homeDir: string, userBinDir: string, isDryRun: boolean): void {
+  const currentPath = process.env.PATH || '';
+  const pathSegments = currentPath.split(path.delimiter);
+  if (pathSegments.includes(userBinDir)) {
+    return;
+  }
+
+  const exportLine = `export PATH="$HOME/.local/bin:$PATH"`;
+  const rcCandidates = ['.zshrc', '.bashrc'].map((rc) => path.join(homeDir, rc));
+  let updatedAny = false;
+
+  for (const rcPath of rcCandidates) {
+    if (fs.existsSync(rcPath)) {
+      const content = fs.readFileSync(rcPath, 'utf-8');
+      if (!content.includes('.local/bin')) {
+        if (!isDryRun) {
+          fs.writeFileSync(rcPath, `${content.trimEnd()}\n\n# Added by agent-plan-viewer\n${exportLine}\n`, 'utf-8');
+        }
+        updatedAny = true;
+      }
+    }
+  }
+
+  if (!updatedAny) {
+    const defaultRc = path.join(homeDir, process.platform === 'darwin' ? '.zshrc' : '.bashrc');
+    if (!fs.existsSync(defaultRc)) {
+      if (!isDryRun) {
+        fs.mkdirSync(path.dirname(defaultRc), { recursive: true });
+        fs.writeFileSync(defaultRc, `# Added by agent-plan-viewer\n${exportLine}\n`, 'utf-8');
+      }
+    }
+  }
+}
+
 export function ensureCliInstalled(options: {
   global?: boolean;
   dryRun?: boolean;
   cwd?: string;
+  homeDir?: string;
   execCommand?: (cmd: string, opts?: ExecOptions) => string;
 }): {
   action: 'installed' | 'updated' | 'skipped';
   scope: 'global' | 'local';
   version?: string;
   usedSudo?: boolean;
+  binPath?: string;
 } {
   const run = options.execCommand || defaultExec;
   const isGlobal = Boolean(options.global);
   const isDryRun = Boolean(options.dryRun);
-  const cwd = options.cwd || process.cwd();
+  const homeDir = options.homeDir || os.homedir();
 
   // =========================================================================
-  // LOCAL WORKSPACE INSTALL (no sudo required)
+  // USER-SPACE ("LOCAL") INSTALL (~/.local/bin/agent-plan-viewer, no root/sudo)
   // =========================================================================
   if (!isGlobal) {
+    const userPrefix = path.join(homeDir, '.local');
+    const userBinDir = path.join(userPrefix, 'bin');
+    const userBinPath = path.join(userBinDir, 'agent-plan-viewer');
+    const candidatePkgPaths = [
+      path.join(userPrefix, 'lib/node_modules/agent-plan-viewer/package.json'),
+      path.join(userPrefix, 'node_modules/agent-plan-viewer/package.json'),
+    ];
+
     let existingVersion: string | null = null;
-    const localPkgJsonPath = path.join(cwd, 'node_modules/agent-plan-viewer/package.json');
-    if (fs.existsSync(localPkgJsonPath)) {
-      try {
-        const pkg = JSON.parse(fs.readFileSync(localPkgJsonPath, 'utf-8'));
-        if (pkg && typeof pkg.version === 'string') {
-          existingVersion = pkg.version;
+    for (const pkgPath of candidatePkgPaths) {
+      if (fs.existsSync(pkgPath)) {
+        try {
+          const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+          if (pkg && typeof pkg.version === 'string') {
+            existingVersion = pkg.version;
+            break;
+          }
+        } catch {
+          // ignore
         }
+      }
+    }
+
+    if (!existingVersion && fs.existsSync(userBinPath)) {
+      try {
+        const out = run(`"${userBinPath}" --version`);
+        if (out) existingVersion = out.trim();
       } catch {
-        existingVersion = null;
+        // ignore
       }
     }
 
@@ -217,30 +272,32 @@ export function ensureCliInstalled(options: {
       if (isInstalled) {
         console.log(
           chalk.yellow(
-            `  ↻ Local CLI:         Would update ./node_modules/.bin/agent-plan-viewer (currently v${existingVersion})`
+            `  ↻ User-space CLI:    Would update ${userBinPath} (currently v${existingVersion})`
           )
         );
-        return { action: 'updated', scope: 'local', version: existingVersion || undefined };
+        return { action: 'updated', scope: 'local', version: existingVersion || undefined, binPath: userBinPath };
       } else {
         console.log(
           chalk.green(
-            `  + Local CLI:         Would install agent-plan-viewer locally into ./node_modules/.bin/agent-plan-viewer`
+            `  + User-space CLI:    Would install agent-plan-viewer into user space (${userBinPath}, no root required)`
           )
         );
-        return { action: 'installed', scope: 'local' };
+        return { action: 'installed', scope: 'local', binPath: userBinPath };
       }
     }
 
-    const localInstallCommands = [
-      'npm install --no-save agent-plan-viewer@latest',
-      'npm install --no-save github:ppopli/agent-plan-viewer',
+    fs.mkdirSync(userBinDir, { recursive: true });
+
+    const userInstallCommands = [
+      `npm install -g --prefix "${userPrefix}" agent-plan-viewer@latest`,
+      `npm install -g --prefix "${userPrefix}" github:ppopli/agent-plan-viewer`,
     ];
 
     let installedOk = false;
     let lastError: unknown = null;
-    for (const cmd of localInstallCommands) {
+    for (const cmd of userInstallCommands) {
       try {
-        run(cmd, { cwd });
+        run(cmd);
         installedOk = true;
         break;
       } catch (err) {
@@ -251,37 +308,42 @@ export function ensureCliInstalled(options: {
     if (!installedOk) {
       const msg = lastError instanceof Error ? lastError.message : String(lastError);
       console.warn(
-        chalk.yellow(`  ⚠ Could not install local CLI automatically (${msg.split('\n')[0]}).`)
+        chalk.yellow(`  ⚠ Could not install user-space CLI automatically (${msg.split('\n')[0]}).`)
       );
       return { action: 'skipped', scope: 'local' };
     }
 
+    ensureUserBinInPath(homeDir, userBinDir, isDryRun);
+
     let newVersion = existingVersion || 'latest';
-    if (fs.existsSync(localPkgJsonPath)) {
-      try {
-        const pkg = JSON.parse(fs.readFileSync(localPkgJsonPath, 'utf-8'));
-        if (pkg && typeof pkg.version === 'string') {
-          newVersion = pkg.version;
+    for (const pkgPath of candidatePkgPaths) {
+      if (fs.existsSync(pkgPath)) {
+        try {
+          const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+          if (pkg && typeof pkg.version === 'string') {
+            newVersion = pkg.version;
+            break;
+          }
+        } catch {
+          // ignore
         }
-      } catch {
-        // ignore
       }
     }
 
     if (isInstalled) {
       console.log(
         chalk.yellow(
-          `  ↻ Updated local CLI:  ${chalk.white(`./node_modules/.bin/agent-plan-viewer (v${existingVersion} -> v${newVersion})`)}`
+          `  ↻ Updated user-space CLI:   ${chalk.white(`${userBinPath} (v${existingVersion} -> v${newVersion})`)}`
         )
       );
-      return { action: 'updated', scope: 'local', version: newVersion };
+      return { action: 'updated', scope: 'local', version: newVersion, binPath: userBinPath };
     } else {
       console.log(
         chalk.green(
-          `  + Installed local CLI:${chalk.white(` ./node_modules/.bin/agent-plan-viewer (v${newVersion})`)}`
+          `  + Installed user-space CLI: ${chalk.white(`${userBinPath} (v${newVersion})`)}`
         )
       );
-      return { action: 'installed', scope: 'local', version: newVersion };
+      return { action: 'installed', scope: 'local', version: newVersion, binPath: userBinPath };
     }
   }
 
@@ -413,12 +475,13 @@ export async function installSkill(options: InstallSkillOptions = {}): Promise<v
     console.log(chalk.yellow('🔍 Running in DRY-RUN mode (no files or packages will be modified)\n'));
   }
 
-  // 0. Install or update the CLI binary (globally with sudo fallback if --global, else locally in cwd)
+  // 0. Install or update the CLI binary (system-wide with sudo if --global, else in user space ~/.local/bin)
   if (!skipCli) {
     ensureCliInstalled({
       global: isGlobal,
       dryRun: isDryRun,
       cwd,
+      homeDir,
       execCommand: options.execCommand,
     });
   }

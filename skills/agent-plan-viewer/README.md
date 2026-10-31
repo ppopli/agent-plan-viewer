@@ -1,43 +1,43 @@
 # Installing & Configuring the Agent Plan Viewer Skill 🛠️
 
-This guide provides step-by-step instructions for installing and enabling the **`agent-plan-viewer`** skill across popular AI coding agents, including **Google Antigravity (AGY)**, **Claude Code**, **Cursor**, **OpenAI Codex**, and custom agent pipelines.
+This guide provides step-by-step instructions for installing and enabling the **`agent-plan-viewer`** skill for the supported AI coding tools: **Google Antigravity (AGY)**, **Claude Code**, **OpenAI Codex**, and **Cursor**.
 
 ---
 
 ## ⚡ Single-Command Installation (Fastest)
 
-You can install or update both the global `agent-plan-viewer` CLI binary and the agent skill files with a **single command from npm**:
+You can install or update both the `agent-plan-viewer` CLI binary and the agent skill files with a **single command from npm**:
 
-### Global Machine-Wide Installation (Recommended):
-```bash
-npx agent-plan-viewer@latest install-skill --global
-```
-*Installs or updates the `agent-plan-viewer` CLI globally on your system (automatically prompting for `sudo` if your global npm directory requires root permissions), and installs/updates the skill and rules in `~/.gemini/` (`SKILL.md` + `GEMINI.md`) and `~/.claude/` (`SKILL.md` + `CLAUDE.md`) so all current and future projects can use it.*
-
-### Workspace Installation (Current Project — No `sudo` Required):
+### Local (User-Space) Installation — No Root (`sudo`) Permission Required:
 ```bash
 npx agent-plan-viewer@latest install-skill
 ```
-*Installs or updates `agent-plan-viewer` locally in `./node_modules/.bin/agent-plan-viewer` without requiring `sudo`, installs the skill for all agents in your workspace (`.agents/skills/`, `.claude/skills/`, and `.cursor/rules/`), and updates review instructions in `AGENTS.md` / `CLAUDE.md`.*
+*Installs or updates `agent-plan-viewer` into your user space (`~/.local/bin/agent-plan-viewer`, automatically adding `~/.local/bin` to your shell `PATH`) **without requiring root (`sudo`) permission**, and installs/updates the workspace skills and rules for **Google Antigravity (AGY)**, **Claude Code**, **OpenAI Codex**, and **Cursor** (`.agents/skills/`, `.claude/skills/`, `.cursor/rules/`, `AGENTS.md`, `CLAUDE.md`, `.cursorrules`).*
 
-### Target a Specific Agent Only:
+### Global (System-Wide) Installation — Asks for Root (`sudo`) Permission:
 ```bash
-# Only Antigravity (AGY)
+npx agent-plan-viewer@latest install-skill --global
+```
+*Installs or updates the `agent-plan-viewer` CLI system-wide (**will ask for root/`sudo` permission** in the terminal if your system's global npm directory requires administrator privileges), and installs/updates global skills and rules in `~/.gemini/` (`SKILL.md` + `GEMINI.md`) and `~/.claude/` (`SKILL.md` + `CLAUDE.md`).*
+
+### Target a Specific Supported Tool Only:
+```bash
+# Google Antigravity (AGY) & OpenAI Codex (.agents/skills + AGENTS.md)
 npx agent-plan-viewer@latest install-skill --target agy
 
-# Only Claude Code
+# Claude Code (.claude/skills + CLAUDE.md)
 npx agent-plan-viewer@latest install-skill --target claude
 
-# Only Cursor
+# Cursor (.cursor/rules + .cursorrules)
 npx agent-plan-viewer@latest install-skill --target cursor
 ```
 
 ### Via One-Liner Shell Script:
 ```bash
-# Workspace + local CLI install/update (no sudo required)
+# Local (user-space) CLI + workspace skills install/update (no root/sudo permission required)
 curl -fsSL https://raw.githubusercontent.com/ppopli/agent-plan-viewer/main/scripts/install-skill.sh | bash
 
-# Global skills/rules + global CLI install/update (prompts for sudo if needed)
+# Global (system-wide) CLI + global skills/rules install/update (asks for root/sudo permission if needed)
 curl -fsSL https://raw.githubusercontent.com/ppopli/agent-plan-viewer/main/scripts/install-skill.sh | bash -s -- --global
 ```
 
@@ -152,27 +152,26 @@ For Cursor AI Agent and Composer:
 
 ---
 
-### D. Custom Agent Frameworks (Python / Node.js)
+### D. OpenAI Codex
 
-If using **LangChain**, **AutoGen**, **CrewAI**, or custom LLM agent scripts, you can execute `agent-plan-viewer` as a tool:
+OpenAI Codex reads workspace instructions from `AGENTS.md` and `.agents/skills/`:
 
-#### Python Example:
-```python
-import subprocess
-import json
+1. **Install Skill File**:
+   ```bash
+   mkdir -p .agents/skills/agent-plan-viewer
+   cp /path/to/agent-plan-viewer/skills/agent-plan-viewer/SKILL.md .agents/skills/agent-plan-viewer/SKILL.md
+   ```
 
-def review_plan_interactively(plan_path: str) -> dict:
-    """Launches Agent Plan Viewer and blocks until developer submits feedback."""
-    cmd = ["npx", "agent-plan-viewer", "review", plan_path, "--json"]
-    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-    return json.loads(result.stdout)
-
-# Usage in agent tool loop:
-review_data = review_plan_interactively("./plan.md")
-if review_data["status"] == "APPROVED":
-    print("Plan approved! User instructions:", review_data["userInstructions"])
-    # Proceed with autonomous coding
-```
+2. **Add Rule to `AGENTS.md`**:
+   ```markdown
+   ## Interactive Plan Review Protocol (agent-plan-viewer)
+   Whenever you formulate or update an implementation plan or architecture design:
+   1. DO NOT simply output raw markdown and ask for approval in the terminal.
+   2. Save your plan to a markdown file (e.g. `plan.md`).
+   3. Launch the interactive viewer: `agent-plan-viewer review plan.md --json` (or `npx agent-plan-viewer review plan.md --json`).
+   4. Wait synchronously for the developer to review, edit, and approve in the browser.
+   5. Ingest the returned JSON result and user instructions before making any code modifications.
+   ```
 
 ---
 

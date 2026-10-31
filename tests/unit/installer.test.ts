@@ -100,20 +100,22 @@ describe('CLI & Skill Installer / Updater', () => {
     expect(executed).toContain('npm install -g agent-plan-viewer@latest');
   });
 
-  it('installs and updates CLI locally in workspace (without -g or sudo) when --global is not set', () => {
+  it('installs and updates CLI in user space (~/.local/bin, without root/sudo) when --global is not set', () => {
     const executed: Array<{ cmd: string; opts?: ExecOptions }> = [];
-    const localPkgDir = path.join(fakeCwd, 'node_modules/agent-plan-viewer');
-    const localPkgPath = path.join(localPkgDir, 'package.json');
+    const userPrefix = path.join(fakeHome, '.local');
+    const userPkgDir = path.join(userPrefix, 'lib/node_modules/agent-plan-viewer');
+    const userPkgPath = path.join(userPkgDir, 'package.json');
 
-    // 1. Fresh local install
+    // 1. Fresh user-space install
     const resInstall = ensureCliInstalled({
       global: false,
       cwd: fakeCwd,
+      homeDir: fakeHome,
       execCommand: (cmd: string, opts?: ExecOptions) => {
         executed.push({ cmd, opts });
-        if (cmd === 'npm install --no-save agent-plan-viewer@latest') {
-          fs.mkdirSync(localPkgDir, { recursive: true });
-          fs.writeFileSync(localPkgPath, JSON.stringify({ name: 'agent-plan-viewer', version: '1.0.2' }), 'utf-8');
+        if (cmd.includes(`--prefix "${userPrefix}" agent-plan-viewer@latest`)) {
+          fs.mkdirSync(userPkgDir, { recursive: true });
+          fs.writeFileSync(userPkgPath, JSON.stringify({ name: 'agent-plan-viewer', version: '1.0.3' }), 'utf-8');
         }
         return '';
       },
@@ -121,17 +123,19 @@ describe('CLI & Skill Installer / Updater', () => {
 
     expect(resInstall.action).toBe('installed');
     expect(resInstall.scope).toBe('local');
-    expect(resInstall.version).toBe('1.0.2');
-    expect(executed.every((e) => !e.cmd.includes('-g') && !e.cmd.includes('sudo'))).toBe(true);
+    expect(resInstall.version).toBe('1.0.3');
+    expect(resInstall.binPath).toBe(path.join(fakeHome, '.local/bin/agent-plan-viewer'));
+    expect(executed.every((e) => !e.cmd.includes('sudo'))).toBe(true);
 
-    // 2. Local update when already present
+    // 2. User-space update when already present
     const resUpdate = ensureCliInstalled({
       global: false,
       cwd: fakeCwd,
+      homeDir: fakeHome,
       execCommand: (cmd: string, opts?: ExecOptions) => {
         executed.push({ cmd, opts });
-        if (cmd === 'npm install --no-save agent-plan-viewer@latest') {
-          fs.writeFileSync(localPkgPath, JSON.stringify({ name: 'agent-plan-viewer', version: '1.0.3' }), 'utf-8');
+        if (cmd.includes(`--prefix "${userPrefix}" agent-plan-viewer@latest`)) {
+          fs.writeFileSync(userPkgPath, JSON.stringify({ name: 'agent-plan-viewer', version: '1.0.4' }), 'utf-8');
         }
         return '';
       },
@@ -139,14 +143,14 @@ describe('CLI & Skill Installer / Updater', () => {
 
     expect(resUpdate.action).toBe('updated');
     expect(resUpdate.scope).toBe('local');
-    expect(resUpdate.version).toBe('1.0.3');
+    expect(resUpdate.version).toBe('1.0.4');
   });
 
   it('installs workspace skill and rule files when missing, and updates them when already present', async () => {
     const commands: string[] = [];
     const mockExec = (cmd: string) => {
       commands.push(cmd);
-      return '1.0.3';
+      return '1.0.4';
     };
 
     // 1. Fresh workspace install
@@ -167,7 +171,7 @@ describe('CLI & Skill Installer / Updater', () => {
     expect(fs.existsSync(cursorMdcPath)).toBe(true);
     expect(fs.existsSync(agentsMdPath)).toBe(true);
     expect(fs.existsSync(claudeMdPath)).toBe(true);
-    expect(commands).toContain('npm install --no-save agent-plan-viewer@latest');
+    expect(commands.some((c) => c.includes(`--prefix "${path.join(fakeHome, '.local')}" agent-plan-viewer@latest`))).toBe(true);
 
     // Modify existing skill & AGENTS.md to simulate outdated version + custom surrounding rules
     fs.writeFileSync(agySkillPath, '# Outdated Skill', 'utf-8');
