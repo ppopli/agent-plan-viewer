@@ -263,4 +263,24 @@ describe('serializePlanMarkdown: former limitations', () => {
     expect(block.indexOf('Cache[("Redis")]')).toBeGreaterThan(block.indexOf('subgraph Core["Core"]'));
     expect(block.indexOf('Cache[("Redis")]')).toBeLessThan(block.indexOf('end'));
   });
+
+  it('persists and restores exact node (x, y) positions and edge handles as-is across round-trips', () => {
+    const out = reserialize((s) => {
+      const gw = s.diagrams[0].nodes.find((n) => n.id === 'GW')!;
+      gw.x = 642;
+      gw.y = 188;
+      const edge = s.diagrams[0].edges.find((e) => e.source === 'GW' && e.target === 'Svc')!;
+      edge.sourceHandle = 'right-src';
+      edge.targetHandle = 'left-tgt';
+    });
+
+    expect(out).toContain('%% @apv-layout');
+    const reparsed = parsePlanMarkdown(out);
+    const reparsedGw = reparsed.diagrams[0].nodes.find((n) => n.id === 'GW')!;
+    const reparsedEdge = reparsed.diagrams[0].edges.find((e) => e.source === 'GW' && e.target === 'Svc')!;
+    expect(reparsedGw.x).toBe(642);
+    expect(reparsedGw.y).toBe(188);
+    expect(reparsedEdge.sourceHandle).toBe('right-src');
+    expect(reparsedEdge.targetHandle).toBe('left-tgt');
+  });
 });

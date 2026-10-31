@@ -184,6 +184,8 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
   const [showMermaidCode, setShowMermaidCode] = useState(false);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [dragPositions, setDragPositions] = useState<Record<string, { x: number; y: number }>>({});
+  const dragPositionsRef = useRef<Record<string, { x: number; y: number }>>({});
 
   const deleteButtonRef = useRef<HTMLButtonElement>(null);
   const reactFlowWrapperRef = useRef<HTMLDivElement>(null);
@@ -316,25 +318,33 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
   // React Flow nodes
   const flowNodes: Node[] = useMemo(() => {
     if (!diagram) return [];
-    return diagram.nodes.map((n) => ({
-      id: n.id,
-      type: 'custom',
-      position: { x: n.x, y: n.y },
-      selected: selectedNodeId === n.id,
-      data: {
-        label: n.label,
-        type: n.type,
-        shape: n.shape,
-        onLabelChange: handleNodeLabelChange,
-        onDeleteNode: handleDeleteNode,
-      },
-    }));
-  }, [diagram, selectedNodeId, handleNodeLabelChange, handleDeleteNode]);
+    return diagram.nodes.map((n) => {
+      const pos = dragPositions[n.id] ?? { x: n.x, y: n.y };
+      return {
+        id: n.id,
+        type: 'custom',
+        position: pos,
+        selected: selectedNodeId === n.id,
+        data: {
+          label: n.label,
+          type: n.type,
+          shape: n.shape,
+          onLabelChange: handleNodeLabelChange,
+          onDeleteNode: handleDeleteNode,
+        },
+      };
+    });
+  }, [diagram, dragPositions, selectedNodeId, handleNodeLabelChange, handleDeleteNode]);
 
   // React Flow edges with selection styling, smoothstep/bezier routing & arrowheads
   const flowEdges: Edge[] = useMemo(() => {
     if (!diagram) return [];
-    const nodeMap = new Map(diagram.nodes.map((n) => [n.id, n]));
+    const nodeMap = new Map(
+      diagram.nodes.map((n) => [
+        n.id,
+        dragPositions[n.id] ? { ...n, ...dragPositions[n.id] } : n,
+      ])
+    );
     const dashedInCount = new Map<string, number>();
     for (const e of diagram.edges) {
       if (e.style === 'dashed') {
@@ -431,22 +441,29 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
         labelBgPadding: [6, 4] as [number, number],
       };
     });
-  }, [diagram, selectedEdgeId, selectedNodeId]);
+  }, [diagram, dragPositions, selectedEdgeId, selectedNodeId]);
 
   // Node position & removal handling
   const onNodesChange = useCallback(
     (changes: any) => {
       if (!diagram) return;
-      let hasPosition = false;
-      const nextNodes = [...diagram.nodes];
+      let isDragging = false;
+      let shouldCommitPosition = false;
+      let movedNodeId: string | null = null;
 
       for (const change of changes) {
-        if (change.type === 'position' && change.position) {
-          const target = nextNodes.find((n) => n.id === change.id);
-          if (target) {
-            target.x = change.position.x;
-            target.y = change.position.y;
-            hasPosition = true;
+        if (change.type === 'position') {
+          if (change.position) {
+            dragPositionsRef.current[change.id] = {
+              x: Math.round(change.position.x),
+              y: Math.round(change.position.y),
+            };
+          }
+          if (change.dragging === true) {
+            isDragging = true;
+          } else if (change.dragging === false || change.position) {
+            shouldCommitPosition = true;
+            movedNodeId = change.id;
           }
         } else if (change.type === 'remove') {
           handleDeleteNode(change.id);
@@ -461,13 +478,38 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
         }
       }
 
-      if (hasPosition) {
-        const nextDiagrams = [...planState.diagrams];
-        nextDiagrams[selectedDiagIdx] = { ...diagram, nodes: nextNodes };
-        onStateChange({ ...planState, diagrams: nextDiagrams });
+      if (isDragging && !shouldCommitPosition) {
+        setDragPositions({ ...dragPositionsRef.current });
+        return;
+      }
+
+      if (shouldCommitPosition) {
+        const pending = dragPositionsRef.current;
+        const nextNodes = diagram.nodes.map((n) =>
+          pending[n.id] ? { ...n, x: pending[n.id].x, y: pending[n.id].y } : n
+        );
+        dragPositionsRef.current = {};
+        setDragPositions({});
+
+        const movedNode = movedNodeId ? nextNodes.find((n) => n.id === movedNodeId) : undefined;
+        const origNode = movedNodeId ? diagram.nodes.find((n) => n.id === movedNodeId) : undefined;
+        const actuallyMoved =
+          movedNode &&
+          origNode &&
+          (Math.abs(movedNode.x - origNode.x) > 1 || Math.abs(movedNode.y - origNode.y) > 1);
+
+        if (actuallyMoved && movedNode) {
+          const nextDiagrams = [...planState.diagrams];
+          nextDiagrams[selectedDiagIdx] = { ...diagram, nodes: nextNodes };
+          const updatedInstructions = appendAutoInstruction(
+            `Moved diagram component: "${movedNode.label}" to (${movedNode.x}, ${movedNode.y})`,
+            planState.userInstructions
+          );
+          commitDiagramUpdate(nextDiagrams, updatedInstructions);
+        }
       }
     },
-    [diagram, planState, selectedDiagIdx, onStateChange, handleDeleteNode, selectedNodeId]
+    [diagram, planState, selectedDiagIdx, commitDiagramUpdate, handleDeleteNode, selectedNodeId]
   );
 
   // Edge changes handling
@@ -642,10 +684,11 @@ export const DiagramCanvas: React.FC<DiagramCanvasProps> = ({
   const handleAutoLayout = () => {
     if (!diagram) return;
     const nextNodes = JSON.parse(JSON.stringify(diagram.nodes));
-    autoLayout(nextNodes, diagram.edges);
+    const nextEdges = JSON.parse(JSON.stringify(diagram.edges));
+    autoLayout(nextNodes, nextEdges);
 
     const nextDiagrams = [...planState.diagrams];
-    nextDiagrams[selectedDiagIdx] = { ...diagram, nodes: nextNodes };
+    nextDiagrams[selectedDiagIdx] = { ...diagram, nodes: nextNodes, edges: nextEdges };
     const updatedInstructions = appendAutoInstruction(
       `Applied automated layered layout to architecture diagram`,
       planState.userInstructions

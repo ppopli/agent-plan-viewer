@@ -796,6 +796,32 @@ export function diagramsEqual(a, b) {
         return false;
     return true;
 }
+/** True when node positions (x, y) and edge handles (sourceHandle, targetHandle) match. */
+export function diagramsLayoutEqual(a, b) {
+    if (a.nodes.length !== b.nodes.length || a.edges.length !== b.edges.length)
+        return false;
+    const aNodeMap = new Map(a.nodes.map((n) => [n.id, n]));
+    for (const bn of b.nodes) {
+        if (bn.x === 0 && bn.y === 0)
+            continue;
+        const an = aNodeMap.get(bn.id);
+        if (!an)
+            return false;
+        if (Math.abs(Math.round(an.x) - Math.round(bn.x)) > 1 ||
+            Math.abs(Math.round(an.y) - Math.round(bn.y)) > 1) {
+            return false;
+        }
+    }
+    for (let i = 0; i < a.edges.length; i++) {
+        const ae = a.edges[i];
+        const be = b.edges[i];
+        if ((be.sourceHandle && ae.sourceHandle !== be.sourceHandle) ||
+            (be.targetHandle && ae.targetHandle !== be.targetHandle)) {
+            return false;
+        }
+    }
+    return true;
+}
 /**
  * Apply the before -> after changes to the original Mermaid source.
  * Returns null when it can't be done faithfully.

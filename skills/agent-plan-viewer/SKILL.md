@@ -102,9 +102,12 @@ When the command exits with code `0`, it outputs a structured JSON result to `st
 ```
 
 #### Crucial Rule for Diagram & Plan Synchronization:
-Whenever the user adds, renames, rewires, or removes components/connections in the **Diagram Canvas** UI (`diff.diagramChanges`):
-1. **Always re-read the plan file from disk (`planPath`) or use `updatedMarkdown` as your starting baseline.** NEVER overwrite the file with an older in-memory draft from before the review, as that would erase the user's visual diagram changes.
-2. **Accept all UI diagram changes (`diff.diagramChanges`)**: Preserve the user's added/modified nodes and edges in the ````mermaid```` block(s), refine the Mermaid diagram syntax if requested in `userInstructions` (using valid Mermaid shapes: `["Service"]` for service, `[("Database")]` for database, `[["Queue"]]` for queue, `("Gateway")` for gateway, `{{"Actor"}}` for actor), and update the corresponding architecture descriptions, component tables, request flow steps, and checklist tasks in the plan markdown so that **the next time the plan is opened in `agent-plan-viewer`, the updated diagram renders accurately with all changes intact.**
+Whenever the user adds, renames, moves, rewires, or removes components/connections in the **Diagram Canvas** UI (`diff.diagramChanges`):
+1. **Update ONLY the Plan Markdown File (Never Edit Code During Plan Review)**: When handling `CHANGES_REQUESTED` or diagram edits, **only update the target `.md` plan file** — never modify viewer or application source code until the plan is explicitly `APPROVED`.
+2. **Always re-read the plan file from disk (`planPath`) or use `updatedMarkdown` as your starting baseline.** NEVER overwrite the file with an older in-memory draft from before the review, as that would erase the user's visual diagram changes and layout metadata.
+3. **Preserve Component Positions, Edge Handles, & UI Changes As-Is (`diff.diagramChanges` & `%% @apv-layout`)**:
+   - The viewer persists custom node `(x, y)` positions and edge attachment handles (`sourceHandle` / `targetHandle`) inside the Mermaid block via a `%% @apv-layout {...}` comment. **Always keep the `%% @apv-layout` comment intact** in the Mermaid block so moved components and rewired edge handles render at the exact same position and orientation on the next view.
+   - Preserve the user's added/modified nodes and edges in the ````mermaid```` block(s) as-is (using valid Mermaid shapes: `["Service"]` for service, `[("Database")]` for database, `[["Queue"]]` for queue, `("Gateway")` for gateway, `{{"Actor"}}` for actor), and update the corresponding architecture descriptions, component tables, request flow steps, and checklist tasks in the plan markdown so that **the next time the plan is opened in `agent-plan-viewer`, the updated diagram renders accurately with all node positions, edges, and changes intact.**
 
 - **If `status === "APPROVED"`**:
   1. Re-read the updated markdown file from disk (which already contains the user's inline text edits, task updates, and Mermaid diagram modifications).

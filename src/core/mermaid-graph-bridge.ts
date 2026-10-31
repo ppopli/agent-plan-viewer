@@ -530,6 +530,7 @@ function parseErDiagram(raw: string, lines: string[], diagramId: string): Parsed
 
   const nodes = Array.from(nodeMap.values());
   autoLayout(nodes, edges);
+  applyLayoutMetadata(raw, nodes, edges);
   const scenarios = buildDefaultScenarios(nodes, edges, flowSteps);
 
   return {
@@ -694,6 +695,7 @@ function parseFlowchart(raw: string, lines: string[], diagramId: string): Parsed
 
   const nodes = Array.from(nodeMap.values());
   autoLayout(nodes, edges);
+  applyLayoutMetadata(raw, nodes, edges);
 
   const scenarios = buildDefaultScenarios(nodes, edges, flowSteps);
 
@@ -837,6 +839,7 @@ function parseSequenceDiagram(raw: string, lines: string[], diagramId: string): 
 
   const nodes = Array.from(nodeMap.values());
   assignOptimalHandles(nodes, edges);
+  applyLayoutMetadata(raw, nodes, edges);
 
   let scenarios: FlowScenario[];
   if (altBranches.length > 0 && altBranches.some((b) => b.steps.length > 0)) {
@@ -1250,6 +1253,161 @@ export function autoLayout(nodes: DiagramNode[], edges: DiagramEdge[]) {
   }
 
   assignOptimalHandles(nodes, edges);
+}
+
+export interface DiagramLayoutMetadata {
+  nodes?: Record<string, { x: number; y: number }>;
+  edges?: Array<{
+    s: string;
+    t: string;
+    l?: string;
+    sh?: DiagramEdge['sourceHandle'];
+    th?: DiagramEdge['targetHandle'];
+  }>;
+}
+
+const LAYOUT_COMMENT_REGEX = /^\s*%%\s*@apv-layout\s+(\{[^\r\n]*\})\s*$/m;
+
+export function parseLayoutMetadata(raw: string): DiagramLayoutMetadata | null {
+  const match = raw.match(LAYOUT_COMMENT_REGEX);
+  if (!match) return null;
+  try {
+    return JSON.parse(match[1]) as DiagramLayoutMetadata;
+  } catch {
+    return null;
+  }
+}
+
+export function stripLayoutMetadataComment(raw: string): string {
+  return raw
+    .split(/\r?\n/)
+    .filter((line) => !/^\s*%%\s*@apv-layout\b/.test(line))
+    .join(raw.includes('\r\n') ? '\r\n' : '\n');
+}
+
+export function applyLayoutMetadata(
+  raw: string,
+  nodes: DiagramNode[],
+  edges: DiagramEdge[]
+): void {
+  const meta = parseLayoutMetadata(raw);
+  if (!meta) return;
+
+  let nodesMoved = false;
+  if (meta.nodes) {
+    for (const node of nodes) {
+      const saved = meta.nodes[node.id];
+      if (saved && typeof saved.x === 'number' && typeof saved.y === 'number') {
+        node.x = saved.x;
+        node.y = saved.y;
+        nodesMoved = true;
+      }
+    }
+  }
+
+  if (nodesMoved) {
+    assignOptimalHandles(nodes, edges);
+  }
+
+  if (meta.edges && Array.isArray(meta.edges)) {
+    const usedMetaIdx = new Set<number>();
+    for (const edge of edges) {
+      const exactIdx = meta.edges.findIndex(
+        (me, idx) =>
+          !usedMetaIdx.has(idx) &&
+          me.s === edge.source &&
+          me.t === edge.target &&
+          (me.l ?? '') === (edge.label ?? '')
+      );
+      const fallbackIdx =
+        exactIdx !== -1
+          ? exactIdx
+          : meta.edges.findIndex(
+              (me, idx) =>
+                !usedMetaIdx.has(idx) && me.s === edge.source && me.t === edge.target
+            );
+      const chosenIdx = exactIdx !== -1 ? exactIdx : fallbackIdx;
+      if (chosenIdx !== -1) {
+        usedMetaIdx.add(chosenIdx);
+        const savedEdge = meta.edges[chosenIdx];
+        if (savedEdge.sh) edge.sourceHandle = savedEdge.sh;
+        if (savedEdge.th) edge.targetHandle = savedEdge.th;
+      }
+    }
+  }
+}
+
+export function upsertLayoutMetadataComment(
+  mermaidCode: string,
+  diagram: ParsedDiagram
+): string {
+  const cleanMermaid = stripLayoutMetadataComment(mermaidCode);
+  const defaultParsed = parseMermaid(cleanMermaid, diagram.id);
+
+  const defaultNodeMap = new Map(defaultParsed.nodes.map((n) => [n.id, n]));
+  const customNodes: Record<string, { x: number; y: number }> = {};
+
+  for (const node of diagram.nodes) {
+    if (node.x === 0 && node.y === 0) continue;
+    const defNode = defaultNodeMap.get(node.id);
+    const rx = Math.round(node.x);
+    const ry = Math.round(node.y);
+    if (
+      !defNode ||
+      Math.abs(rx - Math.round(defNode.x)) > 1 ||
+      Math.abs(ry - Math.round(defNode.y)) > 1
+    ) {
+      customNodes[node.id] = { x: rx, y: ry };
+    }
+  }
+
+  const simulatedNodes = defaultParsed.nodes.map((dn) => ({
+    ...dn,
+    x: customNodes[dn.id]?.x ?? dn.x,
+    y: customNodes[dn.id]?.y ?? dn.y,
+  }));
+  const simulatedEdges = defaultParsed.edges.map((de) => ({ ...de }));
+  if (Object.keys(customNodes).length > 0) {
+    assignOptimalHandles(simulatedNodes, simulatedEdges);
+  }
+
+  const customEdges: NonNullable<DiagramLayoutMetadata['edges']> = [];
+  const usedSimIdx = new Set<number>();
+  for (const edge of diagram.edges) {
+    const simIdx = simulatedEdges.findIndex(
+      (se, idx) =>
+        !usedSimIdx.has(idx) &&
+        se.source === edge.source &&
+        se.target === edge.target &&
+        (se.label ?? '') === (edge.label ?? '')
+    );
+    const simEdge = simIdx !== -1 ? simulatedEdges[simIdx] : undefined;
+    if (simIdx !== -1) usedSimIdx.add(simIdx);
+
+    const shDiff = Boolean(edge.sourceHandle && edge.sourceHandle !== simEdge?.sourceHandle);
+    const thDiff = Boolean(edge.targetHandle && edge.targetHandle !== simEdge?.targetHandle);
+    if (shDiff || thDiff) {
+      const entry: NonNullable<DiagramLayoutMetadata['edges']>[number] = {
+        s: edge.source,
+        t: edge.target,
+      };
+      if (edge.label) entry.l = edge.label;
+      if (edge.sourceHandle) entry.sh = edge.sourceHandle;
+      if (edge.targetHandle) entry.th = edge.targetHandle;
+      customEdges.push(entry);
+    }
+  }
+
+  if (Object.keys(customNodes).length === 0 && customEdges.length === 0) {
+    return cleanMermaid;
+  }
+
+  const meta: DiagramLayoutMetadata = {};
+  if (Object.keys(customNodes).length > 0) meta.nodes = customNodes;
+  if (customEdges.length > 0) meta.edges = customEdges;
+
+  const eol = cleanMermaid.includes('\r\n') ? '\r\n' : '\n';
+  return `${cleanMermaid.replace(/\s+$/, '')}${eol}    %% @apv-layout ${JSON.stringify(meta)}`;
 }
 
 export function serializeToMermaid(diagram: ParsedDiagram): string {

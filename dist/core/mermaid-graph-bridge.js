@@ -411,6 +411,7 @@ function parseErDiagram(raw, lines, diagramId) {
     }
     const nodes = Array.from(nodeMap.values());
     autoLayout(nodes, edges);
+    applyLayoutMetadata(raw, nodes, edges);
     const scenarios = buildDefaultScenarios(nodes, edges, flowSteps);
     return {
         id: diagramId,
@@ -570,6 +571,7 @@ function parseFlowchart(raw, lines, diagramId) {
     }
     const nodes = Array.from(nodeMap.values());
     autoLayout(nodes, edges);
+    applyLayoutMetadata(raw, nodes, edges);
     const scenarios = buildDefaultScenarios(nodes, edges, flowSteps);
     return {
         id: diagramId,
@@ -698,6 +700,7 @@ function parseSequenceDiagram(raw, lines, diagramId) {
     }
     const nodes = Array.from(nodeMap.values());
     assignOptimalHandles(nodes, edges);
+    applyLayoutMetadata(raw, nodes, edges);
     let scenarios;
     if (altBranches.length > 0 && altBranches.some((b) => b.steps.length > 0)) {
         scenarios = altBranches
@@ -733,7 +736,7 @@ function parseSequenceDiagram(raw, lines, diagramId) {
     };
 }
 function isObservabilityNode(n) {
-    return /telemetry|otel|opentelemetry|prometheus|grafana|datadog|jaeger|zipkin|cloudwatch|observability|monitoring|metrics/i.test(`${n.id} ${n.label}`);
+    return /telemetry|otel|opentelemetry|prometheus|mimir|loki|elk|tempo|grafana|datadog|jaeger|zipkin|cloudwatch|alertmanager|pagerduty|observability|monitoring|metrics/i.test(`${n.id} ${n.label}`);
 }
 /**
  * Assigns optimal 4-way sourceHandle and targetHandle to each edge based on relative node coordinates
@@ -829,7 +832,8 @@ export function autoLayout(nodes, edges) {
                 sidecarIdSet.add(node.id);
             }
         }
-        // Pass 2: Include downstream nodes fed exclusively by sidecar nodes (e.g. OTel Collector -> Prometheus DB)
+        // Pass 2: Include downstream nodes fed by sidecar nodes, observability nodes connected to sidecar,
+        // and leaf actors/sources that connect exclusively into sidecar nodes
         let addedDownstream = true;
         while (addedDownstream) {
             addedDownstream = false;
@@ -838,9 +842,12 @@ export function autoLayout(nodes, edges) {
                     continue;
                 const inc = incomingByNode.get(node.id) || [];
                 const out = outgoingByNode.get(node.id) || [];
-                if (inc.length > 0 &&
-                    inc.every((e) => sidecarIdSet.has(e.source)) &&
-                    out.every((e) => sidecarIdSet.has(e.target))) {
+                const fedExclusivelyBySidecar = inc.length > 0 && inc.every((e) => sidecarIdSet.has(e.source));
+                const obsConnectedToSidecar = isObservabilityNode(node) && inc.some((e) => sidecarIdSet.has(e.source));
+                const leafFeedingExclusivelyIntoSidecar = inc.length === 0 && out.length > 0 && out.every((e) => sidecarIdSet.has(e.target));
+                if (fedExclusivelyBySidecar ||
+                    obsConnectedToSidecar ||
+                    leafFeedingExclusivelyIntoSidecar) {
                     sidecarIdSet.add(node.id);
                     addedDownstream = true;
                 }
@@ -946,18 +953,229 @@ export function autoLayout(nodes, edges) {
                 maxPrimaryRightX = x;
         });
     });
-    // Position sidecar / observability sink nodes in a clean vertical column to the right
+    // Position sidecar / observability pipeline nodes in clean topological layers to the right
     if (sidecarNodes.length > 0) {
-        const sidecarX = maxPrimaryRightX + 420;
+        const sidecarEdges = edges.filter((e) => sidecarIdSet.has(e.source) && sidecarIdSet.has(e.target) && e.source !== e.target);
+        const sidecarNodeById = new Map(sidecarNodes.map((n) => [n.id, n]));
+        const isLeafSidecarActor = (id) => {
+            const n = sidecarNodeById.get(id);
+            const inc = incomingByNode.get(id) || [];
+            const out = outgoingByNode.get(id) || [];
+            return Boolean(n && inc.length === 0 && out.length > 0 && !isObservabilityNode(n));
+        };
+        const sRank = new Map();
+        sidecarNodes.forEach((n) => sRank.set(n.id, 0));
+        for (let iter = 0; iter < sidecarNodes.length + 2; iter++) {
+            let changed = false;
+            for (const edge of sidecarEdges) {
+                if (isLeafSidecarActor(edge.source))
+                    continue;
+                const uRank = sRank.get(edge.source) || 0;
+                const vRank = sRank.get(edge.target) || 0;
+                if (vRank < uRank + 1 && uRank + 1 < sidecarNodes.length) {
+                    sRank.set(edge.target, uRank + 1);
+                    changed = true;
+                }
+            }
+            if (!changed)
+                break;
+        }
+        // Place leaf actors that point into a deeper sidecar node (e.g. "user view dashboard" -> "Grafana Dashboards")
+        // on the layer directly beneath their target so they don't cross upper pipeline layers
+        for (const node of sidecarNodes) {
+            if (isLeafSidecarActor(node.id)) {
+                const out = sidecarEdges.filter((e) => e.source === node.id);
+                const maxTargetRank = Math.max(0, ...out.map((e) => sRank.get(e.target) || 0));
+                if (maxTargetRank >= 1) {
+                    sRank.set(node.id, maxTargetRank + 1);
+                }
+            }
+        }
+        const sLayerMap = new Map();
+        let maxSRank = 0;
+        for (const node of sidecarNodes) {
+            const r = sRank.get(node.id) || 0;
+            if (r > maxSRank)
+                maxSRank = r;
+            if (!sLayerMap.has(r))
+                sLayerMap.set(r, []);
+            sLayerMap.get(r).push(node);
+        }
+        const sLayers = [];
+        let maxSLayerNodes = 1;
+        for (let r = 0; r <= maxSRank; r++) {
+            const layer = sLayerMap.get(r);
+            if (layer && layer.length > 0) {
+                sLayers.push(layer);
+                if (layer.length > maxSLayerNodes)
+                    maxSLayerNodes = layer.length;
+            }
+        }
+        const sidecarLeftMargin = maxPrimaryRightX + 420;
+        const sidecarCenterX = Math.round(sidecarLeftMargin + ((maxSLayerNodes - 1) * colWidth) / 2);
         const totalPrimaryHeight = Math.max(0, (layers.length - 1) * rowHeight);
-        const totalSidecarHeight = Math.max(0, (sidecarNodes.length - 1) * (rowHeight + 25));
+        const totalSidecarHeight = Math.max(0, (sLayers.length - 1) * rowHeight);
         const sidecarStartY = Math.max(startY + rowHeight, Math.round(startY + (totalPrimaryHeight - totalSidecarHeight) / 2));
-        sidecarNodes.forEach((node, idx) => {
-            node.x = sidecarX;
-            node.y = sidecarStartY + idx * (rowHeight + 25);
+        const sNodeXMap = new Map();
+        sLayers.forEach((layer, layerIdx) => {
+            let layerAnchorX = sidecarCenterX;
+            if (layerIdx > 0) {
+                const getConnectedXs = (nodeId) => sidecarEdges
+                    .filter((e) => (e.target === nodeId && sNodeXMap.has(e.source)) ||
+                    (e.source === nodeId && sNodeXMap.has(e.target)))
+                    .map((e) => e.target === nodeId ? sNodeXMap.get(e.source) : sNodeXMap.get(e.target));
+                const parentXs = [];
+                layer.sort((a, b) => {
+                    const aParents = getConnectedXs(a.id);
+                    const bParents = getConnectedXs(b.id);
+                    const aBary = aParents.length > 0
+                        ? aParents.reduce((s, v) => s + v, 0) / aParents.length
+                        : sidecarCenterX;
+                    const bBary = bParents.length > 0
+                        ? bParents.reduce((s, v) => s + v, 0) / bParents.length
+                        : sidecarCenterX;
+                    return aBary - bBary;
+                });
+                for (const n of layer) {
+                    parentXs.push(...getConnectedXs(n.id));
+                }
+                if (parentXs.length > 0 && layer.length < maxSLayerNodes) {
+                    layerAnchorX = Math.round(parentXs.reduce((s, v) => s + v, 0) / parentXs.length);
+                }
+            }
+            const y = sidecarStartY + layerIdx * rowHeight;
+            const totalWidth = (layer.length - 1) * colWidth;
+            const rowStartX = Math.max(sidecarLeftMargin, Math.round(layerAnchorX - totalWidth / 2));
+            layer.forEach((node, nodeIdx) => {
+                const x = Math.round(rowStartX + nodeIdx * colWidth);
+                node.x = x;
+                node.y = y;
+                sNodeXMap.set(node.id, x);
+            });
         });
     }
     assignOptimalHandles(nodes, edges);
+}
+const LAYOUT_COMMENT_REGEX = /^\s*%%\s*@apv-layout\s+(\{[^\r\n]*\})\s*$/m;
+export function parseLayoutMetadata(raw) {
+    const match = raw.match(LAYOUT_COMMENT_REGEX);
+    if (!match)
+        return null;
+    try {
+        return JSON.parse(match[1]);
+    }
+    catch {
+        return null;
+    }
+}
+export function stripLayoutMetadataComment(raw) {
+    return raw
+        .split(/\r?\n/)
+        .filter((line) => !/^\s*%%\s*@apv-layout\b/.test(line))
+        .join(raw.includes('\r\n') ? '\r\n' : '\n');
+}
+export function applyLayoutMetadata(raw, nodes, edges) {
+    const meta = parseLayoutMetadata(raw);
+    if (!meta)
+        return;
+    let nodesMoved = false;
+    if (meta.nodes) {
+        for (const node of nodes) {
+            const saved = meta.nodes[node.id];
+            if (saved && typeof saved.x === 'number' && typeof saved.y === 'number') {
+                node.x = saved.x;
+                node.y = saved.y;
+                nodesMoved = true;
+            }
+        }
+    }
+    if (nodesMoved) {
+        assignOptimalHandles(nodes, edges);
+    }
+    if (meta.edges && Array.isArray(meta.edges)) {
+        const usedMetaIdx = new Set();
+        for (const edge of edges) {
+            const exactIdx = meta.edges.findIndex((me, idx) => !usedMetaIdx.has(idx) &&
+                me.s === edge.source &&
+                me.t === edge.target &&
+                (me.l ?? '') === (edge.label ?? ''));
+            const fallbackIdx = exactIdx !== -1
+                ? exactIdx
+                : meta.edges.findIndex((me, idx) => !usedMetaIdx.has(idx) && me.s === edge.source && me.t === edge.target);
+            const chosenIdx = exactIdx !== -1 ? exactIdx : fallbackIdx;
+            if (chosenIdx !== -1) {
+                usedMetaIdx.add(chosenIdx);
+                const savedEdge = meta.edges[chosenIdx];
+                if (savedEdge.sh)
+                    edge.sourceHandle = savedEdge.sh;
+                if (savedEdge.th)
+                    edge.targetHandle = savedEdge.th;
+            }
+        }
+    }
+}
+export function upsertLayoutMetadataComment(mermaidCode, diagram) {
+    const cleanMermaid = stripLayoutMetadataComment(mermaidCode);
+    const defaultParsed = parseMermaid(cleanMermaid, diagram.id);
+    const defaultNodeMap = new Map(defaultParsed.nodes.map((n) => [n.id, n]));
+    const customNodes = {};
+    for (const node of diagram.nodes) {
+        if (node.x === 0 && node.y === 0)
+            continue;
+        const defNode = defaultNodeMap.get(node.id);
+        const rx = Math.round(node.x);
+        const ry = Math.round(node.y);
+        if (!defNode ||
+            Math.abs(rx - Math.round(defNode.x)) > 1 ||
+            Math.abs(ry - Math.round(defNode.y)) > 1) {
+            customNodes[node.id] = { x: rx, y: ry };
+        }
+    }
+    const simulatedNodes = defaultParsed.nodes.map((dn) => ({
+        ...dn,
+        x: customNodes[dn.id]?.x ?? dn.x,
+        y: customNodes[dn.id]?.y ?? dn.y,
+    }));
+    const simulatedEdges = defaultParsed.edges.map((de) => ({ ...de }));
+    if (Object.keys(customNodes).length > 0) {
+        assignOptimalHandles(simulatedNodes, simulatedEdges);
+    }
+    const customEdges = [];
+    const usedSimIdx = new Set();
+    for (const edge of diagram.edges) {
+        const simIdx = simulatedEdges.findIndex((se, idx) => !usedSimIdx.has(idx) &&
+            se.source === edge.source &&
+            se.target === edge.target &&
+            (se.label ?? '') === (edge.label ?? ''));
+        const simEdge = simIdx !== -1 ? simulatedEdges[simIdx] : undefined;
+        if (simIdx !== -1)
+            usedSimIdx.add(simIdx);
+        const shDiff = Boolean(edge.sourceHandle && edge.sourceHandle !== simEdge?.sourceHandle);
+        const thDiff = Boolean(edge.targetHandle && edge.targetHandle !== simEdge?.targetHandle);
+        if (shDiff || thDiff) {
+            const entry = {
+                s: edge.source,
+                t: edge.target,
+            };
+            if (edge.label)
+                entry.l = edge.label;
+            if (edge.sourceHandle)
+                entry.sh = edge.sourceHandle;
+            if (edge.targetHandle)
+                entry.th = edge.targetHandle;
+            customEdges.push(entry);
+        }
+    }
+    if (Object.keys(customNodes).length === 0 && customEdges.length === 0) {
+        return cleanMermaid;
+    }
+    const meta = {};
+    if (Object.keys(customNodes).length > 0)
+        meta.nodes = customNodes;
+    if (customEdges.length > 0)
+        meta.edges = customEdges;
+    const eol = cleanMermaid.includes('\r\n') ? '\r\n' : '\n';
+    return `${cleanMermaid.replace(/\s+$/, '')}${eol}    %% @apv-layout ${JSON.stringify(meta)}`;
 }
 export function serializeToMermaid(diagram) {
     if (diagram.type === 'sequence') {

@@ -73,13 +73,13 @@ The command starts a local server, opens the developer's browser, watches the fi
 
 ### Step 4: Ingest the Output, Accept UI Diagram Changes, & Update the Plan
 When the command exits with code \`0\`, parse the structured JSON from stdout:
-- **Crucial Diagram Sync Rule**: When the user adds, renames, rewires, or deletes components/connections in the Diagram Viewer (\`diff.diagramChanges\`), always re-read the updated plan file from disk (\`planPath\`) or use \`updatedMarkdown\` first so you never overwrite their visual diagram edits. Accept those diagram changes, update the \`\`\`mermaid\`\`\` diagram(s) and corresponding plan sections/tasks accordingly, and ensure the updated diagram renders accurately the next time the plan is viewed.
+- **Crucial Diagram Sync Rule**: When the user adds, renames, moves, rewires, or deletes components/connections in the Diagram Viewer (\`diff.diagramChanges\`), **only update the plan markdown file** (never edit application/viewer code during plan review). Always re-read the updated plan file from disk (\`planPath\`) or use \`updatedMarkdown\` first so you never overwrite their visual diagram edits or \`%% @apv-layout\` position/edge-handle metadata. Preserve all node positions, edge connections, and \`%% @apv-layout\` comments as-is, update the \`\`\`mermaid\`\`\` diagram(s) and corresponding plan sections/tasks accordingly, and ensure the updated diagram renders accurately at the exact positions the next time the plan is viewed.
 - **If \`status === "APPROVED"\`**:
-  1. Re-read the updated plan/markdown file from disk (preserving all UI diagram, task, and line edits).
-  2. Sync any surrounding plan sections/tasks with \`diff.diagramChanges\` and \`userInstructions\`.
+  1. Re-read the updated plan/markdown file from disk (preserving all UI diagram, position, edge, task, and line edits).
+  2. Sync any surrounding plan sections/tasks in the markdown file with \`diff.diagramChanges\` and \`userInstructions\`.
   3. Proceed with executing the code changes!
 - **If \`status === "CHANGES_REQUESTED"\`**:
-  1. Re-read the updated plan file from disk, accept all UI diagram changes (\`diff.diagramChanges\`), and revise the plan and \`\`\`mermaid\`\`\` diagrams per \`userInstructions\`.
+  1. Re-read the updated plan file from disk, accept all UI diagram, position, and edge changes (\`diff.diagramChanges\` and \`%% @apv-layout\`) as-is, and revise ONLY the plan markdown file and \`\`\`mermaid\`\`\` diagrams per \`userInstructions\`.
   2. Immediately re-run \`agent-plan-viewer review <plan-path> --json\` so the updated plan and diagram render in the browser.
 `;
 }
@@ -90,7 +90,7 @@ Whenever you formulate or update an implementation plan or architecture design:
 2. Save your plan to a markdown file (e.g. \`plan.md\`). Ensure the plan includes fenced \`\`\`mermaid\`\`\` diagrams (\`flowchart TD\`/\`LR\`, \`sequenceDiagram\`, or \`erDiagram\`); if a plan lacks Mermaid diagrams, generate and embed them in Mermaid format first.
 3. Launch the interactive viewer: \`agent-plan-viewer review plan.md --json\` (or \`npx agent-plan-viewer review plan.md --json\`).
 4. Wait synchronously for the developer to review, edit, and approve in the browser.
-5. Re-read the updated plan file from disk, accept any component/connection changes made in the Diagram Viewer (\`diff.diagramChanges\`), update the Mermaid diagram and plan sections accordingly so the diagram renders updated on next view, and follow \`userInstructions\` before making code modifications.
+5. Re-read the updated plan file from disk, accept any component, position, or edge changes made in the Diagram Viewer (\`diff.diagramChanges\` and \`%% @apv-layout\` metadata) as-is, update only the Mermaid diagram and plan sections in the markdown file (do not edit code during plan review) so the diagram renders updated on next view, and follow \`userInstructions\` before making code modifications.
 `;
 const GLOBAL_AGY_RULE_TEXT = `
 ## Plan review with agent-plan-viewer (enabled)
@@ -101,7 +101,7 @@ Whenever you write or update an implementation plan or design document (includin
 2. Ensure the plan contains fenced \`\`\`mermaid\`\`\` diagrams (\`flowchart TD\`/\`LR\`, \`sequenceDiagram\`, or \`erDiagram\`). If the plan does not have diagrams in Mermaid format, generate and add them in Mermaid syntax before launching the viewer.
 3. Run \`agent-plan-viewer review <path-to-plan.md> --json\` as a background task. It blocks until the user clicks Approve & Submit or Request Changes.
 4. Do not ask for approval via chat text instead of the viewer.
-5. Always re-read the updated plan file from disk after the viewer exits, accept any component or connection changes made in the diagram viewer (\`diff.diagramChanges\`), and update the Mermaid diagram and plan accordingly so the next time the plan is viewed the diagram renders updated and accurately. On \`APPROVED\`, follow any \`userInstructions\`. On \`CHANGES_REQUESTED\`, revise the plan and re-run the viewer.
+5. Always re-read the updated plan file from disk after the viewer exits, accept any component, position, or edge changes made in the diagram viewer (\`diff.diagramChanges\` and \`%% @apv-layout\` metadata) as-is, and update only the Mermaid diagram and plan markdown file (never edit code during plan review) so the next time the plan is viewed the diagram renders updated and at the exact positions. On \`APPROVED\`, follow any \`userInstructions\`. On \`CHANGES_REQUESTED\`, revise the plan markdown and re-run the viewer.
 `;
 const CURSOR_MDC_TEXT = `---
 description: Interactive plan review workflow using agent-plan-viewer

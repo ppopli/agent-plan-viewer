@@ -1,6 +1,11 @@
 import { PlanState, PlanDiff, ReviewResult } from './types.js';
-import { serializeToMermaid, computeDiagramDiff, parseMermaid } from './mermaid-graph-bridge.js';
-import { patchMermaid, diagramsEqual } from './mermaid-patch.js';
+import {
+  serializeToMermaid,
+  computeDiagramDiff,
+  parseMermaid,
+  upsertLayoutMetadataComment,
+} from './mermaid-graph-bridge.js';
+import { patchMermaid, diagramsEqual, diagramsLayoutEqual } from './mermaid-patch.js';
 
 export function serializePlanMarkdown(state: PlanState): string {
   let markdown = state.rawMarkdown;
@@ -46,7 +51,15 @@ export function serializePlanMarkdown(state: PlanState): string {
       // Regenerating from the parsed graph is lossy (e.g. drops alt/else/opt
       // blocks), so leave the block untouched unless the user changed it.
       const original = parseMermaid(sourceCode, diagram.id);
-      if (diagramsEqual(original, diagram)) return match;
+      const sameStructure = diagramsEqual(original, diagram);
+      const sameLayout = diagramsLayoutEqual(original, diagram);
+      if (sameStructure && sameLayout) return match;
+
+      if (sameStructure) {
+        const withLayout = upsertLayoutMetadataComment(sourceCode, diagram);
+        return `\`\`\`mermaid\n${withLayout.replace(/\s+$/, '')}\n\`\`\``;
+      }
+
       // Patch only the changed lines of the original source so subgraphs,
       // alt/else blocks, notes, styling and comments survive. Regenerating the
       // whole diagram is the last resort.
@@ -54,7 +67,10 @@ export function serializePlanMarkdown(state: PlanState): string {
       // Regenerating would turn an ER diagram into a flowchart, so for ER we
       // keep the original source if the edit can't be patched.
       if (patched === null && isEr) return match;
-      const updatedMermaid = patched ?? serializeToMermaid(diagram);
+      const updatedMermaid = upsertLayoutMetadataComment(
+        patched ?? serializeToMermaid(diagram),
+        diagram
+      );
       return `\`\`\`mermaid\n${updatedMermaid.replace(/\s+$/, '')}\n\`\`\``;
     }
     return match;
