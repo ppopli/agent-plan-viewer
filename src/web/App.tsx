@@ -182,12 +182,16 @@ const PlanViewerContent: React.FC<ContentProps> = ({
   // Explicit Approve & Submit action
   const handleApprove = async () => {
     try {
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
+      const latestState = history.getLatestPresent();
       const res = await fetch('/api/approve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          planState: history.present,
-          userInstructions: history.present.userInstructions,
+          planState: latestState,
+          userInstructions: latestState.userInstructions,
         }),
       });
       if (res.ok) {
@@ -202,12 +206,16 @@ const PlanViewerContent: React.FC<ContentProps> = ({
   // Explicit Request Changes action
   const handleRequestChanges = async () => {
     try {
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
+      const latestState = history.getLatestPresent();
       const res = await fetch('/api/request-changes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          planState: history.present,
-          userInstructions: history.present.userInstructions,
+          planState: latestState,
+          userInstructions: latestState.userInstructions,
         }),
       });
       if (res.ok) {

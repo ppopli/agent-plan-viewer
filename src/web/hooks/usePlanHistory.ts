@@ -7,6 +7,7 @@ const MAX_BASELINES_DEPTH = 10;
 export interface UsePlanHistoryReturn {
   // Tier 1: Action-level Undo/Redo
   present: PlanState;
+  getLatestPresent: () => PlanState;
   past: PlanState[];
   future: PlanState[];
   canUndo: boolean;
@@ -220,8 +221,11 @@ export function usePlanHistory(initialState: PlanState, initialBaselines: Baseli
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [undo, redo]);
 
+  const getLatestPresent = useCallback(() => presentRef.current, []);
+
   return {
     present,
+    getLatestPresent,
     past,
     future,
     canUndo: past.length > 0,

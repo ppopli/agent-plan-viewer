@@ -876,7 +876,7 @@ function parseSequenceDiagram(raw: string, lines: string[], diagramId: string): 
 }
 
 function isObservabilityNode(n: DiagramNode): boolean {
-  return /telemetry|otel|opentelemetry|prometheus|grafana|datadog|jaeger|zipkin|cloudwatch|observability|monitoring|metrics/i.test(
+  return /telemetry|otel|opentelemetry|prometheus|mimir|loki|elk|tempo|grafana|datadog|jaeger|zipkin|cloudwatch|alertmanager|pagerduty|observability|monitoring|metrics/i.test(
     `${n.id} ${n.label}`
   );
 }
@@ -984,19 +984,14 @@ export function autoLayout(nodes: DiagramNode[], edges: DiagramEdge[]) {
       }
     }
 
-    // Pass 2: Include downstream nodes fed exclusively by sidecar nodes (e.g. OTel Collector -> Prometheus DB)
+    // Pass 2: Include downstream nodes fed exclusively by sidecar nodes (e.g. OTel Collector -> Prometheus DB -> Alertmanager -> User)
     let addedDownstream = true;
     while (addedDownstream) {
       addedDownstream = false;
       for (const node of nodes) {
         if (sidecarIdSet.has(node.id)) continue;
         const inc = incomingByNode.get(node.id) || [];
-        const out = outgoingByNode.get(node.id) || [];
-        if (
-          inc.length > 0 &&
-          inc.every((e) => sidecarIdSet.has(e.source)) &&
-          out.every((e) => sidecarIdSet.has(e.target))
-        ) {
+        if (inc.length > 0 && inc.every((e) => sidecarIdSet.has(e.source))) {
           sidecarIdSet.add(node.id);
           addedDownstream = true;
         }
@@ -1116,18 +1111,103 @@ export function autoLayout(nodes: DiagramNode[], edges: DiagramEdge[]) {
     });
   });
 
-  // Position sidecar / observability sink nodes in a clean vertical column to the right
+  // Position sidecar / observability pipeline nodes in clean topological layers to the right
   if (sidecarNodes.length > 0) {
-    const sidecarX = maxPrimaryRightX + 420;
+    const sidecarEdges = edges.filter(
+      (e) => sidecarIdSet.has(e.source) && sidecarIdSet.has(e.target) && e.source !== e.target
+    );
+
+    const sRank = new Map<string, number>();
+    sidecarNodes.forEach((n) => sRank.set(n.id, 0));
+    for (let iter = 0; iter < sidecarNodes.length + 2; iter++) {
+      let changed = false;
+      for (const edge of sidecarEdges) {
+        const uRank = sRank.get(edge.source) || 0;
+        const vRank = sRank.get(edge.target) || 0;
+        if (vRank < uRank + 1 && uRank + 1 < sidecarNodes.length) {
+          sRank.set(edge.target, uRank + 1);
+          changed = true;
+        }
+      }
+      if (!changed) break;
+    }
+
+    const sLayerMap = new Map<number, DiagramNode[]>();
+    let maxSRank = 0;
+    for (const node of sidecarNodes) {
+      const r = sRank.get(node.id) || 0;
+      if (r > maxSRank) maxSRank = r;
+      if (!sLayerMap.has(r)) sLayerMap.set(r, []);
+      sLayerMap.get(r)!.push(node);
+    }
+
+    const sLayers: DiagramNode[][] = [];
+    let maxSLayerNodes = 1;
+    for (let r = 0; r <= maxSRank; r++) {
+      const layer = sLayerMap.get(r);
+      if (layer && layer.length > 0) {
+        sLayers.push(layer);
+        if (layer.length > maxSLayerNodes) maxSLayerNodes = layer.length;
+      }
+    }
+
+    const sidecarLeftMargin = maxPrimaryRightX + 420;
+    const sidecarCenterX = Math.round(
+      sidecarLeftMargin + ((maxSLayerNodes - 1) * colWidth) / 2
+    );
     const totalPrimaryHeight = Math.max(0, (layers.length - 1) * rowHeight);
-    const totalSidecarHeight = Math.max(0, (sidecarNodes.length - 1) * (rowHeight + 25));
+    const totalSidecarHeight = Math.max(0, (sLayers.length - 1) * rowHeight);
     const sidecarStartY = Math.max(
       startY + rowHeight,
       Math.round(startY + (totalPrimaryHeight - totalSidecarHeight) / 2)
     );
-    sidecarNodes.forEach((node, idx) => {
-      node.x = sidecarX;
-      node.y = sidecarStartY + idx * (rowHeight + 25);
+
+    const sNodeXMap = new Map<string, number>();
+    sLayers.forEach((layer, layerIdx) => {
+      let layerAnchorX = sidecarCenterX;
+      if (layerIdx > 0) {
+        const parentXs: number[] = [];
+        layer.sort((a, b) => {
+          const aParents = sidecarEdges
+            .filter((e) => e.target === a.id && sNodeXMap.has(e.source))
+            .map((e) => sNodeXMap.get(e.source)!);
+          const bParents = sidecarEdges
+            .filter((e) => e.target === b.id && sNodeXMap.has(e.source))
+            .map((e) => sNodeXMap.get(e.source)!);
+          const aBary =
+            aParents.length > 0
+              ? aParents.reduce((s, v) => s + v, 0) / aParents.length
+              : sidecarCenterX;
+          const bBary =
+            bParents.length > 0
+              ? bParents.reduce((s, v) => s + v, 0) / bParents.length
+              : sidecarCenterX;
+          return aBary - bBary;
+        });
+
+        for (const n of layer) {
+          const pXs = sidecarEdges
+            .filter((e) => e.target === n.id && sNodeXMap.has(e.source))
+            .map((e) => sNodeXMap.get(e.source)!);
+          parentXs.push(...pXs);
+        }
+        if (parentXs.length > 0 && layer.length < maxSLayerNodes) {
+          layerAnchorX = Math.round(
+            parentXs.reduce((s, v) => s + v, 0) / parentXs.length
+          );
+        }
+      }
+
+      const y = sidecarStartY + layerIdx * rowHeight;
+      const totalWidth = (layer.length - 1) * colWidth;
+      const rowStartX = Math.max(sidecarLeftMargin, Math.round(layerAnchorX - totalWidth / 2));
+
+      layer.forEach((node, nodeIdx) => {
+        const x = Math.round(rowStartX + nodeIdx * colWidth);
+        node.x = x;
+        node.y = y;
+        sNodeXMap.set(node.id, x);
+      });
     });
   }
 
